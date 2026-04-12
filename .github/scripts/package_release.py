@@ -16,7 +16,7 @@ RELEASE_EXCLUDES = (
     "*.pyc",
     "*.pyo",
 )
-RUNTIME_DLL_PATTERNS = ("python3*.dll", "vcruntime140*.dll")
+RUNTIME_DLL_PATTERNS = ("python3.dll", "vcruntime140*.dll")
 RUNTIME_SEARCH_DIRS = (
     Path(sys.base_prefix),
     Path(sys.base_prefix) / "DLLs",

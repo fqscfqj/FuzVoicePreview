@@ -134,9 +134,10 @@ def _preload_native_libraries(vendor_dir: Path) -> None:
     if os.name != "nt":
         return
 
+    # Let the loader resolve Python/runtime DLLs from vendor/bin on demand.
+    # Preloading them can conflict with MO2's embedded plugin_python host.
     dll_dirs = _dedupe_paths(
         [
-            vendor_dir / "bin",
             vendor_dir / "site-packages" / "av.libs",
             *_discover_qt_dll_directories(),
         ]
