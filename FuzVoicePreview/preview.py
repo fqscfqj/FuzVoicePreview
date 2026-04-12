@@ -228,6 +228,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         class MciWavePlayerAdapter(QObject):
             supports_seek = True
             supports_volume = True
+            supports_live_volume = False
             position_changed = pyqtSignal(int)
             duration_changed = pyqtSignal(int)
             playback_changed = pyqtSignal(bool)
@@ -238,8 +239,13 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 self._player = MciWavePlayerCore()
                 self._snapshot = MciPlaybackSnapshot(position_ms=0, duration_ms=0, is_playing=False)
                 self._timer = QTimer(self)
-                self._timer.setInterval(200)
+                self._timer.setInterval(120)
                 self._timer.timeout.connect(self._on_tick)
+                self._volume_timer = QTimer(self)
+                self._volume_timer.setInterval(140)
+                self._volume_timer.setSingleShot(True)
+                self._volume_timer.timeout.connect(self._apply_pending_volume)
+                self._pending_volume: int | None = None
 
             def load(self, wav_data: bytes) -> None:
                 try:
@@ -248,6 +254,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                     self.error_changed.emit(str(exc))
                     return
                 self._timer.stop()
+                self._volume_timer.stop()
+                self._pending_volume = None
                 self._publish_snapshot(self._player.poll(), force_duration=True, force_position=True, force_playback=True)
 
             def play(self) -> None:
@@ -282,12 +290,11 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 self._publish_snapshot(self._player.poll(), force_playback=True, force_position=True)
 
             def set_volume(self, volume: int) -> None:
-                try:
-                    self._player.set_volume(volume)
-                except Exception as exc:
-                    self.error_changed.emit(str(exc))
+                self._pending_volume = max(0, min(100, int(volume)))
+                if self._snapshot.is_playing:
+                    self._volume_timer.start()
                     return
-                self._publish_snapshot(self._player.poll(), force_duration=True, force_position=True)
+                self._apply_pending_volume()
 
             def set_position(self, position_ms: int) -> None:
                 try:
@@ -299,6 +306,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
             def close(self) -> None:
                 self._timer.stop()
+                self._volume_timer.stop()
+                self._pending_volume = None
                 self._player.close()
                 PLAYBACK_COORDINATOR.release(self)
                 self._snapshot = MciPlaybackSnapshot(position_ms=0, duration_ms=0, is_playing=False)
@@ -313,6 +322,19 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 self._publish_snapshot(snapshot)
                 if not snapshot.is_playing:
                     self._timer.stop()
+
+            def _apply_pending_volume(self) -> None:
+                if self._pending_volume is None:
+                    return
+
+                volume = self._pending_volume
+                self._pending_volume = None
+                try:
+                    self._player.set_volume(volume)
+                except Exception as exc:
+                    self.error_changed.emit(str(exc))
+                    return
+                self._publish_snapshot(self._player.poll(), force_duration=True, force_position=True)
 
             def _publish_snapshot(
                 self,

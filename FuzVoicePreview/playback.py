@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import os
 import tempfile
+import time
 import wave
 from dataclasses import dataclass
 from io import BytesIO
@@ -100,16 +101,20 @@ class MciWavePlayerCore:
         transport: MciTransport | None = None,
         temp_writer: Callable[[bytes], Path] | None = None,
         alias: str | None = None,
+        clock: Callable[[], float] | None = None,
     ):
         self._transport = transport or WinmmMciTransport()
         self._temp_writer = temp_writer or _write_temp_wav
         self._alias = alias or f"fuzpreview_{os.getpid()}_{id(self):x}"
+        self._clock = clock or time.monotonic
         self._source_wav_data: bytes | None = None
         self._temp_file: Path | None = None
         self._duration_ms = 0
         self._position_ms = 0
         self._is_playing = False
         self._volume = 100
+        self._playback_started_at: float | None = None
+        self._playback_origin_ms = 0
 
     @property
     def duration_ms(self) -> int:
@@ -129,20 +134,22 @@ class MciWavePlayerCore:
 
     def play(self) -> None:
         self._require_media()
-        start_position = self._query_position_ms()
+        start_position = self._position_ms if self._is_playing else self._current_position_ms()
         if self._duration_ms > 0 and start_position >= self._duration_ms:
             self._send(f"seek {self._alias} to start")
             start_position = 0
         self._send(f"play {self._alias} from {start_position}")
         self._position_ms = start_position
         self._is_playing = True
+        self._set_playback_clock(start_position)
 
     def pause(self) -> None:
         if self._source_wav_data is None:
             return
-        self._position_ms = self._query_position_ms()
+        self._position_ms = self._current_position_ms()
         self._send(f"pause {self._alias}")
         self._is_playing = False
+        self._clear_playback_clock()
 
     def stop(self) -> None:
         if self._source_wav_data is None:
@@ -151,6 +158,7 @@ class MciWavePlayerCore:
         self._send(f"seek {self._alias} to start")
         self._position_ms = 0
         self._is_playing = False
+        self._clear_playback_clock()
 
     def set_position(self, position_ms: int) -> None:
         if self._source_wav_data is None:
@@ -158,23 +166,38 @@ class MciWavePlayerCore:
         target = max(0, min(self._duration_ms, int(position_ms)))
         if self._is_playing:
             self._send(f"play {self._alias} from {target}")
+            self._set_playback_clock(target)
         else:
             self._send(f"seek {self._alias} to {target}")
+            self._clear_playback_clock()
         self._position_ms = target
 
     def set_volume(self, volume: int) -> None:
         clamped = max(0, min(100, int(volume)))
-        self._volume = clamped
         if self._source_wav_data is None:
+            self._volume = clamped
             return
-        self._apply_volume()
+        current_position = self._current_position_ms()
+        was_playing = self._is_playing
+        self._volume = clamped
+        self._rebuild_media(position_ms=current_position, is_playing=was_playing)
 
     def poll(self) -> MciPlaybackSnapshot:
         if self._source_wav_data is None:
             return MciPlaybackSnapshot(position_ms=self._position_ms, duration_ms=self._duration_ms, is_playing=False)
 
-        self._position_ms = self._query_position_ms()
-        self._is_playing = self._query_mode() == "playing"
+        mode = self._query_mode()
+        if mode == "playing":
+            self._position_ms = self._current_position_ms()
+            self._is_playing = True
+        else:
+            queried_position = self._query_position_ms()
+            if self._is_playing and queried_position == 0 and self._duration_ms > 0:
+                self._position_ms = self._duration_ms
+            else:
+                self._position_ms = queried_position
+            self._is_playing = False
+            self._clear_playback_clock()
         return MciPlaybackSnapshot(
             position_ms=self._position_ms,
             duration_ms=self._duration_ms,
@@ -187,14 +210,15 @@ class MciWavePlayerCore:
         self._duration_ms = 0
         self._position_ms = 0
         self._is_playing = False
+        self._clear_playback_clock()
 
     def _rebuild_media(self, *, position_ms: int, is_playing: bool) -> None:
         self._require_media()
         self._close_media()
-        self._temp_file = self._temp_writer(self._source_wav_data)
+        scaled_wav = scale_wav_volume(self._source_wav_data, self._volume)
+        self._temp_file = self._temp_writer(scaled_wav)
         self._send(f'open "{self._temp_file}" type waveaudio alias {self._alias}')
         self._send(f"set {self._alias} time format milliseconds")
-        self._apply_volume()
         self._duration_ms = self._query_int(f"status {self._alias} length")
         self._position_ms = max(0, min(self._duration_ms, int(position_ms)))
         self._is_playing = False
@@ -203,6 +227,9 @@ class MciWavePlayerCore:
         if is_playing:
             self._send(f"play {self._alias} from {self._position_ms}")
             self._is_playing = True
+            self._set_playback_clock(self._position_ms)
+        else:
+            self._clear_playback_clock()
 
     def _close_media(self) -> None:
         try:
@@ -222,8 +249,23 @@ class MciWavePlayerCore:
     def _query_position_ms(self) -> int:
         return max(0, min(self._duration_ms, self._query_int(f"status {self._alias} position")))
 
-    def _apply_volume(self) -> None:
-        self._send(f"setaudio {self._alias} volume to {self._volume * 10}")
+    def _current_position_ms(self) -> int:
+        if not self._is_playing or self._playback_started_at is None:
+            try:
+                return self._query_position_ms()
+            except Exception:
+                return self._position_ms
+
+        elapsed_ms = int((self._clock() - self._playback_started_at) * 1000)
+        return max(0, min(self._duration_ms, self._playback_origin_ms + elapsed_ms))
+
+    def _set_playback_clock(self, position_ms: int) -> None:
+        self._playback_origin_ms = max(0, int(position_ms))
+        self._playback_started_at = self._clock()
+
+    def _clear_playback_clock(self) -> None:
+        self._playback_started_at = None
+        self._playback_origin_ms = self._position_ms
 
     def _query_int(self, command: str) -> int:
         value = self._send(command).strip()

@@ -62,7 +62,7 @@ class PyAvAudioBackend:
             getattr(getattr(audio_stream, "codec_context", None), "sample_rate", None),
             44100,
         )
-        layout = _extract_layout_name(audio_stream) or "stereo"
+        layout = _preview_layout_name(audio_stream)
         resampler = av.audio.resampler.AudioResampler(format="s16", layout=layout, rate=rate)
 
         pcm_chunks: list[bytes] = []
@@ -183,6 +183,19 @@ def _extract_layout_name(stream_or_frame) -> str | None:
         except TypeError:
             return None
     return None
+
+
+def _preview_layout_name(stream_or_frame) -> str:
+    channel_count = _extract_channel_count(stream_or_frame)
+    if channel_count == 1:
+        return "mono"
+    if channel_count and channel_count > 1:
+        return "stereo"
+
+    layout_name = _extract_layout_name(stream_or_frame)
+    if layout_name == "mono":
+        return "mono"
+    return "stereo"
 
 
 def _extract_channel_count(frame) -> int | None:
