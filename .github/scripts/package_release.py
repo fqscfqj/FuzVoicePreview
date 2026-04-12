@@ -11,37 +11,6 @@ from pathlib import Path
 
 
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
-SOURCE_EXCLUDES = (
-    ".git",
-    ".git/*",
-    ".venv",
-    ".venv/*",
-    ".pytest_cache",
-    ".pytest_cache/*",
-    ".mypy_cache",
-    ".mypy_cache/*",
-    ".ruff_cache",
-    ".ruff_cache/*",
-    ".pytype",
-    ".pytype/*",
-    "artifacts",
-    "artifacts/*",
-    "build",
-    "build/*",
-    "dist",
-    "dist/*",
-    "htmlcov",
-    "htmlcov/*",
-    "*__pycache__*",
-    "*.pyc",
-    "*.pyo",
-    "FuzVoicePreview/vendor/bin",
-    "FuzVoicePreview/vendor/bin/*",
-    "FuzVoicePreview/vendor/site-packages",
-    "FuzVoicePreview/vendor/site-packages/*",
-    "FuzVoicePreview/vendor/python",
-    "FuzVoicePreview/vendor/python/*",
-)
 RELEASE_EXCLUDES = (
     "*__pycache__*",
     "*.pyc",
@@ -59,7 +28,7 @@ RUNTIME_SEARCH_DIRS = (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build release archives for FUZ Voice Preview.")
+    parser = argparse.ArgumentParser(description="Build the release package for FUZ Voice Preview.")
     parser.add_argument("--version", required=True, help="Release tag or version string used in archive names.")
     parser.add_argument(
         "--repo-root",
@@ -69,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         default="artifacts",
-        help="Directory where the generated zip files will be written.",
+        help="Directory where the generated zip file will be written.",
     )
     return parser.parse_args()
 
@@ -156,7 +125,10 @@ def stage_release_tree(repo_root: Path, version_name: str, temp_root: Path) -> P
 
     vendor_bin_dir = plugin_stage_root / "vendor" / "bin"
     vendor_bin_dir.mkdir(parents=True, exist_ok=True)
-    for runtime_dll in locate_runtime_dlls():
+    runtime_dlls = locate_runtime_dlls()
+    if not runtime_dlls:
+        raise SystemExit("Required Python runtime DLLs were not found on the runner.")
+    for runtime_dll in runtime_dlls:
         shutil.copy2(runtime_dll, vendor_bin_dir / runtime_dll.name)
 
     return release_stage_root
@@ -173,15 +145,7 @@ def main() -> None:
 
     validate_bundled_runtime(repo_root)
 
-    source_archive = output_dir / f"fuz-source-{version_name}.zip"
     release_archive = output_dir / f"FuzVoicePreview-release-{version_name}.zip"
-
-    write_zip(
-        repo_root,
-        source_archive,
-        arcname_root=f"fuz-source-{version_name}",
-        exclude_patterns=SOURCE_EXCLUDES,
-    )
 
     with tempfile.TemporaryDirectory(prefix="fuz-release-") as temp_dir:
         release_stage_root = stage_release_tree(repo_root, version_name, Path(temp_dir))
@@ -192,7 +156,6 @@ def main() -> None:
             exclude_patterns=RELEASE_EXCLUDES,
         )
 
-    print(f"Created source archive: {source_archive}")
     print(f"Created release archive: {release_archive}")
 
 

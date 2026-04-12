@@ -74,9 +74,8 @@ python -m pytest
 
 ## 发布
 
-当 GitHub 上创建并发布新的 Release 时，仓库中的 GitHub Actions 会自动完成打包并把两个归档文件附加到该 Release：
+当 GitHub 上创建并发布新的 Release 时，仓库中的 GitHub Actions 会自动完成打包并把完整插件包附加到该 Release：
 
-- `fuz-source-<tag>.zip`：源码归档，排除发布期运行时文件。
 - `FuzVoicePreview-release-<tag>.zip`：完整插件包，包含 `vendor` 运行时依赖，可直接用于发布。
 
 如果需要重新打包，只要重新运行对应的 Release 工作流即可。
