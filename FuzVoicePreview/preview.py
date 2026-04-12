@@ -31,6 +31,7 @@ try:  # pragma: no cover - exercised only inside MO2 / PyQt6 runtime
         QPushButton,
         QSizePolicy,
         QSlider,
+        QStackedWidget,
         QTextEdit,
         QVBoxLayout,
         QWidget,
@@ -49,6 +50,23 @@ try:  # pragma: no cover - exercised only inside MO2 / PyQt6 runtime
 except Exception as exc:  # pragma: no cover - local test environment does not ship PyQt6
     MULTIMEDIA_AVAILABLE = False
     MULTIMEDIA_IMPORT_ERROR = exc
+
+
+def preferred_variant_mod_name(available_mod_names: list[str], ancestor_titles: list[str]) -> str | None:
+    normalized_names: dict[str, str] = {}
+    for mod_name in available_mod_names:
+        stripped_name = mod_name.strip()
+        if stripped_name and stripped_name.lower() not in normalized_names:
+            normalized_names[stripped_name.lower()] = stripped_name
+
+    for title in ancestor_titles:
+        stripped_title = title.strip()
+        if not stripped_title:
+            continue
+        match = normalized_names.get(stripped_title.lower())
+        if match is not None:
+            return match
+    return None
 
 
 if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 runtime
@@ -488,8 +506,12 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._refresh_view()
 
         def showEvent(self, event) -> None:
-            self._preview_visible = True
             super().showEvent(event)
+
+            if self._sync_preferred_variant():
+                return
+
+            self._preview_visible = True
 
             if not self._decode_started:
                 self._start_decode()
@@ -514,6 +536,42 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._cleanup_worker()
             self._controller.close()
             super().closeEvent(event)
+
+        def _sync_preferred_variant(self) -> bool:
+            stack = self.parentWidget()
+            if not isinstance(stack, QStackedWidget):
+                return False
+            if bool(stack.property("_fuz_preferred_variant_synced")):
+                return False
+
+            available_mod_names = [str(stack.widget(index).property("modName") or "") for index in range(stack.count())]
+            preferred_mod_name = preferred_variant_mod_name(available_mod_names, self._ancestor_window_titles(stack.window()))
+            stack.setProperty("_fuz_preferred_variant_synced", True)
+            if preferred_mod_name is None:
+                return False
+
+            current_widget = stack.currentWidget()
+            for index in range(stack.count()):
+                candidate = stack.widget(index)
+                candidate_name = str(candidate.property("modName") or "").strip()
+                if candidate_name.lower() != preferred_mod_name.lower():
+                    continue
+                if candidate is current_widget:
+                    return False
+                stack.setCurrentWidget(candidate)
+                return True
+
+            return False
+
+        def _ancestor_window_titles(self, widget: QWidget | None) -> list[str]:
+            titles: list[str] = []
+            current = widget.parentWidget() if widget is not None else None
+            while current is not None:
+                title = current.windowTitle().strip()
+                if title:
+                    titles.append(title)
+                current = current.parentWidget()
+            return titles
 
         def _build_layout(self) -> None:
             self._volume_slider.setRange(0, 100)

@@ -24,6 +24,11 @@ class ExclusivePlaybackPlayer(Protocol):
         ...
 
 
+class MciTransport(Protocol):
+    def send(self, command: str) -> str:
+        ...
+
+
 class ExclusivePlaybackCoordinator:
     def __init__(self):
         self._active_player: ExclusivePlaybackPlayer | None = None
@@ -92,7 +97,7 @@ class MciWavePlayerCore:
     def __init__(
         self,
         *,
-        transport: WinmmMciTransport | None = None,
+        transport: MciTransport | None = None,
         temp_writer: Callable[[bytes], Path] | None = None,
         alias: str | None = None,
     ):
@@ -249,7 +254,7 @@ def scale_wav_volume(wav_data: bytes, volume: int) -> bytes:
     return output.getvalue()
 
 
-def soften_wav_start(wav_data: bytes, *, fade_in_ms: int = 8) -> bytes:
+def soften_wav_start(wav_data: bytes, *, fade_in_ms: int = 16) -> bytes:
     if fade_in_ms <= 0:
         return wav_data
 

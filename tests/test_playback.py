@@ -14,6 +14,7 @@ from FuzVoicePreview.playback import (
     soften_wav_start,
 )
 from FuzVoicePreview.plugin import FuzVoicePreviewPlugin
+from FuzVoicePreview.preview import preferred_variant_mod_name
 
 
 def build_wav_bytes(*, sample_width: int, samples: list[int], channels: int = 1, sample_rate: int = 22050) -> bytes:
@@ -260,6 +261,18 @@ def test_plugin_resolve_preview_path_uses_virtual_override_for_data_relative_pat
 
         assert resolved == override_file
         assert plugin._organizer.resolve_calls == ["sound/voice/test.fuz"]
+
+
+def test_preferred_variant_mod_name_uses_current_mod_dialog_title_when_available():
+    preferred = preferred_variant_mod_name(["HighPriorityMod", "LowPriorityMod"], ["LowPriorityMod", "Mod Information"])
+
+    assert preferred == "LowPriorityMod"
+
+
+def test_preferred_variant_mod_name_returns_none_without_matching_title():
+    preferred = preferred_variant_mod_name(["HighPriorityMod", "LowPriorityMod"], ["Main Window", "Preview"])
+
+    assert preferred is None
 
 
 def test_plugin_translation_methods_do_not_require_pyqt6_runtime():
