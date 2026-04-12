@@ -23,6 +23,12 @@ dist/
 htmlcov/
 .coverage
 .coverage.*
+artifacts/
+
+# Release-only bundled runtime dependencies
+FuzVoicePreview/vendor/bin/
+FuzVoicePreview/vendor/site-packages/
+FuzVoicePreview/vendor/python/
 
 # Editor / IDE files
 .vscode/

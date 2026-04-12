@@ -13,12 +13,16 @@ FUZ Voice Preview 是一个面向 Mod Organizer 2 的 Python 预览插件，用�
 
 ## 安装
 
-1. 将整个 `FuzVoicePreview` 目录放到 MO2 可以扫描到的 Python 插件目录中。通常做法是把这个目录作为插件包直接放入 MO2 的插件加载路径。
-2. 保留 `vendor` 目录。这里包含打包好的运行时依赖，插件启动时会自动把它加入 `sys.path` 和 DLL 搜索路径。
-3. 保留 `FuzVoicePreview/i18n/` 目录。中文翻译文件现在放在这里。
+推荐从 GitHub Releases 下载完整发布包，而不是直接克隆源码仓库。
+
+1. 下载 `FuzVoicePreview-release-<version>.zip`。
+2. 解压后，将其中的 `FuzVoicePreview` 目录放到 MO2 可以扫描到的 Python 插件目录中。
+3. 保留 `FuzVoicePreview/vendor/` 和 `FuzVoicePreview/i18n/` 目录不变。
 4. 重启 MO2。
 
-如果你的 MO2 环境已经提供 `mobase` 和 `PyQt6`，插件可以直接工作。仓库里已经打包了 PyAV 等运行时依赖，因此一般不需要额外手动安装这些组件。
+如果你的 MO2 环境已经提供 `mobase` 和 `PyQt6`，完整发布包通常可以直接工作。发布包中包含 PyAV 以及所需的本地 DLL，因此一般不需要额外手动安装这些组件。
+
+源码仓库默认只保留 `FuzVoicePreview/vendor/README.md` 作为目录说明；`vendor/bin/`、`vendor/site-packages/` 和可选的 `vendor/python/` 视为发布期运行时文件，由本地构建或 Release 资产提供。
 
 ## 使用
 
@@ -37,15 +41,63 @@ FUZ Voice Preview 是一个面向 Mod Organizer 2 的 Python 预览插件，用�
 - `default_volume`：默认音量，范围 0 到 100
 - `debug_logging`：输出额外运行时诊断信息
 
-## 开发与测试
+## 开发环境
 
-开发环境下可以运行测试：
+建议使用独立虚拟环境进行本地开发：
 
-```bash
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+```
+
+如果你需要做本地 UI 冒烟测试，可以额外安装 `PyQt6`：
+
+```powershell
+python -m pip install PyQt6
+```
+
+说明：
+
+- 单元测试只依赖 `pytest`，不要求本地安装 MO2 或 `mobase`。
+- 如果要在 MO2 中联调插件，需要使用带有 `mobase` 的 MO2 Python 运行环境。
+- 如果要构建完整发布包，需要在本地准备好 `FuzVoicePreview/vendor/` 下的运行时依赖，但这些文件默认不再纳入源码仓库版本控制。
+
+## 测试
+
+```powershell
 python -m pytest
 ```
 
-仓库中的测试覆盖了解析、解码、播放协调和控制器逻辑。如果本地环境里还没有 `pytest`，请先安装它。
+当前测试主要覆盖解析、解码、播放协调和控制器逻辑。
+
+## 发布
+
+仓库提供了一个 PowerShell 发布脚本，用于同时生成源码包和完整插件包：
+
+```powershell
+pwsh -File .\scripts\build-release.ps1 -Version 1.0.0
+```
+
+默认输出：
+
+- `artifacts/fuz-source-<version>.zip`：源码归档，排除 `vendor` 下的二进制与内嵌包。
+- `artifacts/FuzVoicePreview-release-<version>.zip`：完整插件包，包含 `vendor` 运行时依赖，可直接用于发布。
+
+常用参数：
+
+```powershell
+pwsh -File .\scripts\build-release.ps1 -Version 1.0.0 -SourceOnly
+pwsh -File .\scripts\build-release.ps1 -Version 1.0.0 -ReleaseOnly -VendorSource D:\bundles\FuzVoicePreview\vendor
+pwsh -File .\scripts\build-release.ps1 -Version 1.0.0 -DryRun
+```
+
+第一次把仓库切换到“源码不跟踪 `vendor` 二进制”模式时，如果这些目录已经被 Git 跟踪，需要额外执行一次：
+
+```powershell
+git rm -r --cached FuzVoicePreview/vendor/bin FuzVoicePreview/vendor/site-packages FuzVoicePreview/vendor/python
+```
 
 ## 依赖说明
 
@@ -53,4 +105,4 @@ python -m pytest
 - Mod Organizer 2
 - `mobase`
 - `PyQt6`
-- PyAV（仓库已在 `vendor` 中打包）
+- PyAV（完整发布包会在 `vendor` 中提供）
