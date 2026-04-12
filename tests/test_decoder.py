@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import wave
 
-from FuzVoicePreview.decoder import AudioDecoder
+from FuzVoicePreview.decoder import AudioDecoder, _frame_to_pcm_bytes
 from FuzVoicePreview.models import AudioKind, DecodeResult, FuzPayload, PreviewSource
 from FuzVoicePreview.parser import OGG_SIGNATURE, UNKNOWN_SIGNATURE, WAV_SIGNATURE, XWM_SIGNATURE
 
@@ -45,6 +45,21 @@ class FakeBackend:
             channels=1,
             backend_name=self.name,
         )
+
+
+class FakeFormat:
+    def __init__(self, *, is_planar: bool, sample_width: int = 2):
+        self.is_planar = is_planar
+        self.bytes = sample_width
+        self.bits = sample_width * 8
+
+
+class FakeFrame:
+    def __init__(self, *, planes: list[bytes], samples: int, channels: int, is_planar: bool):
+        self.planes = planes
+        self.samples = samples
+        self.format = FakeFormat(is_planar=is_planar)
+        self.layout = type("Layout", (), {"nb_channels": channels})()
 
 
 def test_decoder_uses_backend_for_xwma_payload():
@@ -98,3 +113,29 @@ def test_decoder_can_route_ogg_payload_to_backend():
 
     assert result.success is True
     assert result.channels == 1
+
+
+def test_frame_to_pcm_bytes_strips_packed_padding():
+    frame = FakeFrame(
+        planes=[b"\x01\x00\x02\x00\x03\x00\x04\x00PADPAD"],
+        samples=2,
+        channels=2,
+        is_planar=False,
+    )
+
+    pcm = _frame_to_pcm_bytes(frame)
+
+    assert pcm == b"\x01\x00\x02\x00\x03\x00\x04\x00"
+
+
+def test_frame_to_pcm_bytes_interleaves_planar_audio():
+    frame = FakeFrame(
+        planes=[b"\x01\x00\x03\x00junk", b"\x02\x00\x04\x00junk"],
+        samples=2,
+        channels=2,
+        is_planar=True,
+    )
+
+    pcm = _frame_to_pcm_bytes(frame)
+
+    assert pcm == b"\x01\x00\x02\x00\x03\x00\x04\x00"

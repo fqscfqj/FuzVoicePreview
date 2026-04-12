@@ -201,9 +201,18 @@ def _extract_channel_count(frame) -> int | None:
 
 
 def _frame_to_pcm_bytes(frame) -> bytes:
+    sample_width = _extract_sample_width(frame)
+    channels = _extract_channel_count(frame) or max(1, len(getattr(frame, "planes", []) or []))
+    samples = int(getattr(frame, "samples", 0) or 0)
+
     try:
-        plane = frame.planes[0]
-        return bytes(plane)
+        planes = list(frame.planes)
+        if not planes:
+            raise ValueError("frame has no audio planes")
+        if not getattr(frame.format, "is_planar", False):
+            valid_bytes = samples * channels * sample_width
+            return bytes(planes[0])[:valid_bytes]
+        return _interleave_planar_pcm(planes, samples=samples, sample_width=sample_width)
     except Exception:
         pass
 
@@ -211,6 +220,30 @@ def _frame_to_pcm_bytes(frame) -> bytes:
     if getattr(array, "ndim", 1) == 1:
         return array.astype("<i2", copy=False).tobytes()
     return array.transpose().astype("<i2", copy=False).tobytes()
+
+
+def _extract_sample_width(frame) -> int:
+    fmt = getattr(frame, "format", None)
+    width = getattr(fmt, "bytes", None)
+    if width:
+        return int(width)
+    bits = getattr(fmt, "bits", None)
+    if bits:
+        return max(1, int(bits) // 8)
+    return 2
+
+
+def _interleave_planar_pcm(planes, *, samples: int, sample_width: int) -> bytes:
+    channel_buffers = [bytes(plane)[: samples * sample_width] for plane in planes]
+    output = bytearray(samples * sample_width * len(channel_buffers))
+    write_offset = 0
+    for sample_index in range(samples):
+        start = sample_index * sample_width
+        end = start + sample_width
+        for channel in channel_buffers:
+            output[write_offset : write_offset + sample_width] = channel[start:end]
+            write_offset += sample_width
+    return bytes(output)
 
 
 def _pcm_to_wav(pcm_data: bytes, *, sample_rate: int, channels: int) -> bytes:
