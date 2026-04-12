@@ -4,6 +4,7 @@ import io
 import wave
 from pathlib import Path
 
+from FuzVoicePreview.i18n import _candidate_translation_paths, _normalize_language_tag
 from FuzVoicePreview.playback import MciWavePlayerCore, _scale_pcm_frames, scale_wav_volume
 from FuzVoicePreview.plugin import FuzVoicePreviewPlugin
 
@@ -159,3 +160,22 @@ def test_plugin_translation_methods_do_not_require_pyqt6_runtime():
 
     assert plugin.localizedName() == "FUZ Voice Preview"
     assert plugin.description() == "Preview and play FUZ voice files in MO2."
+
+
+def test_normalize_language_tag_generates_progressive_fallbacks():
+    assert _normalize_language_tag("zh-Hans-CN") == ["zh_Hans_CN", "zh_Hans", "zh"]
+    assert _normalize_language_tag("zh_CN") == ["zh_CN", "zh"]
+
+
+def test_candidate_translation_paths_prefers_specific_locale_then_fallback():
+    plugin_dir = Path("plugin-dir")
+
+    candidates = _candidate_translation_paths("FuzVoicePreview", plugin_dir, ["zh-Hans-CN", "en-US"])
+
+    assert candidates[:5] == [
+        plugin_dir / "FuzVoicePreview_zh_Hans_CN.qm",
+        plugin_dir / "FuzVoicePreview_zh_Hans.qm",
+        plugin_dir / "FuzVoicePreview_zh.qm",
+        plugin_dir / "FuzVoicePreview_en_US.qm",
+        plugin_dir / "FuzVoicePreview_en.qm",
+    ]
