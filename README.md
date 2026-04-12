@@ -9,13 +9,14 @@ FUZ Voice Preview 是一个面向 Mod Organizer 2 的 Python 预览插件，用�
 - 支持内嵌音频格式：WAV、XWMA、Ogg/Opus、WMA、MP3、FLAC、AAC、MP4/M4A
 - 提供播放、暂停、停止、拖动定位和音量调节
 - 可导出内嵌音频和 LIP 数据
-- 内置中文翻译
+- 内置简体中文、繁体中文、英文及多种主要语言翻译
 
 ## 安装
 
 1. 将整个 `FuzVoicePreview` 目录放到 MO2 可以扫描到的 Python 插件目录中。通常做法是把这个目录作为插件包直接放入 MO2 的插件加载路径。
 2. 保留 `vendor` 目录。这里包含打包好的运行时依赖，插件启动时会自动把它加入 `sys.path` 和 DLL 搜索路径。
-3. 重启 MO2。
+3. 保留 `FuzVoicePreview/i18n/` 目录。中文翻译文件现在放在这里。
+4. 重启 MO2。
 
 如果你的 MO2 环境已经提供 `mobase` 和 `PyQt6`，插件可以直接工作。仓库里已经打包了 PyAV 等运行时依赖，因此一般不需要额外手动安装这些组件。
 

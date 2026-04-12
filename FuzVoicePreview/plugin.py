@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .i18n import QCoreApplication
+from .translation import QCoreApplication
 from .decoder import AudioDecoder
 from .models import PreviewSettings, PreviewSource
 from .parser import FuzFormatError, parse_fuz_bytes

@@ -5,7 +5,7 @@ from typing import Callable
 
 from .controller import PreviewController
 from .decoder import AudioDecoder
-from .i18n import QCoreApplication
+from .translation import QCoreApplication
 from .models import DecodeResult, FuzPayload, PreviewSettings
 from .playback import MCI_AVAILABLE, PLAYBACK_COORDINATOR, MciPlaybackSnapshot, MciWavePlayerCore
 

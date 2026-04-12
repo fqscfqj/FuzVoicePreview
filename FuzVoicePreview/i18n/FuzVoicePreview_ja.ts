@@ -1,62 +1,62 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="zh_CN">
+<TS version="2.1" language="ja">
 <context>
     <name>FuzPayload</name>
     <message>
         <location filename="models.py" line="69"/>
         <source>File: {file_name}</source>
-        <translation>文件: {file_name}</translation>
+        <translation>ファイル: {file_name}</translation>
     </message>
     <message>
         <location filename="models.py" line="70"/>
         <source>Source: {source_label}</source>
-        <translation>来源: {source_label}</translation>
+        <translation>ソース: {source_label}</translation>
     </message>
     <message>
         <location filename="models.py" line="71"/>
         <source>LIP present: {value}</source>
-        <translation>LIP 存在: {value}</translation>
+        <translation>LIP の有無: {value}</translation>
     </message>
     <message>
         <location filename="models.py" line="72"/>
         <source>yes</source>
-        <translation>是</translation>
+        <translation>はい</translation>
     </message>
     <message>
         <location filename="models.py" line="74"/>
         <source>no</source>
-        <translation>否</translation>
+        <translation>いいえ</translation>
     </message>
     <message>
         <location filename="models.py" line="76"/>
         <source>LIP size: {size} bytes</source>
-        <translation>LIP 大小: {size} 字节</translation>
+        <translation>LIP サイズ: {size} バイト</translation>
     </message>
     <message>
         <location filename="models.py" line="77"/>
         <source>Embedded audio: {label}</source>
-        <translation>内嵌音频: {label}</translation>
+        <translation>埋め込み音声: {label}</translation>
     </message>
     <message>
         <location filename="models.py" line="78"/>
         <source>Embedded audio size: {size} bytes</source>
-        <translation>内嵌音频大小: {size} 字节</translation>
+        <translation>埋め込み音声サイズ: {size} バイト</translation>
     </message>
     <message>
         <location filename="models.py" line="83"/>
         <source>{container_label} version: {version}</source>
-        <translation>{container_label} 版本: {version}</translation>
+        <translation>{container_label} バージョン: {version}</translation>
     </message>
     <message>
         <location filename="models.py" line="91"/>
         <source>Container: {container_label}</source>
-        <translation>容器: {container_label}</translation>
+        <translation>コンテナー: {container_label}</translation>
     </message>
     <message>
         <location filename="models.py" line="96"/>
         <source>Parse note: {note}</source>
-        <translation>解析备注: {note}</translation>
+        <translation>解析メモ: {note}</translation>
     </message>
 </context>
 <context>
@@ -65,7 +65,7 @@
         <location filename="preview.py" line="297"/>
         <location filename="preview.py" line="453"/>
         <source>Play</source>
-        <translation>播放</translation>
+        <translation>再生</translation>
     </message>
     <message>
         <location filename="preview.py" line="298"/>
@@ -75,17 +75,17 @@
     <message>
         <location filename="preview.py" line="302"/>
         <source>Export Audio</source>
-        <translation>导出音频</translation>
+        <translation>音声を書き出し</translation>
     </message>
     <message>
         <location filename="preview.py" line="303"/>
         <source>Export LIP</source>
-        <translation>导出 LIP</translation>
+        <translation>LIP を書き出し</translation>
     </message>
     <message>
         <location filename="preview.py" line="319"/>
         <source>Playback</source>
-        <translation>播放控制</translation>
+        <translation>再生</translation>
     </message>
     <message>
         <location filename="preview.py" line="325"/>
@@ -95,52 +95,52 @@
     <message>
         <location filename="preview.py" line="334"/>
         <source>FUZ metadata</source>
-        <translation>FUZ 元数据</translation>
+        <translation>FUZ メタデータ</translation>
     </message>
     <message>
         <location filename="preview.py" line="356"/>
         <source>No playback backend is available.</source>
-        <translation>没有可用的播放后端。</translation>
+        <translation>利用可能な再生バックエンドがありません。</translation>
     </message>
     <message>
         <location filename="preview.py" line="399"/>
         <source>Playing.</source>
-        <translation>播放中。</translation>
+        <translation>再生中。</translation>
     </message>
     <message>
         <location filename="preview.py" line="402"/>
         <source>Stopped.</source>
-        <translation>已停止。</translation>
+        <translation>停止しました。</translation>
     </message>
     <message>
         <location filename="preview.py" line="404"/>
         <source>Paused.</source>
-        <translation>已暂停。</translation>
+        <translation>一時停止しました。</translation>
     </message>
     <message>
         <location filename="preview.py" line="438"/>
         <source>Decode status: {error_text}</source>
-        <translation>解码状态: {error_text}</translation>
+        <translation>デコード状態: {error_text}</translation>
     </message>
     <message>
         <location filename="preview.py" line="444"/>
         <source>Decode status: Playback is unavailable.</source>
-        <translation>解码状态: 无法播放。</translation>
+        <translation>デコード状態: 再生は利用できません。</translation>
     </message>
     <message>
         <location filename="preview.py" line="451"/>
         <source>Pause</source>
-        <translation>暂停</translation>
+        <translation>一時停止</translation>
     </message>
     <message>
         <location filename="preview.py" line="466"/>
         <source>Export embedded audio</source>
-        <translation>导出内嵌音频</translation>
+        <translation>埋め込み音声を書き出し</translation>
     </message>
     <message>
         <location filename="preview.py" line="477"/>
         <source>Export lip data</source>
-        <translation>导出 LIP 数据</translation>
+        <translation>LIP データを書き出し</translation>
     </message>
 </context>
 <context>
@@ -148,52 +148,52 @@
     <message>
         <location filename="plugin.py" line="37"/>
         <source>FUZ Voice Preview</source>
-        <translation>FUZ 语音预览</translation>
+        <translation>FUZ 音声プレビュー</translation>
     </message>
     <message>
         <location filename="plugin.py" line="43"/>
         <source>Preview and play FUZ voice files in MO2.</source>
-        <translation>在 MO2 中预览并播放 FUZ 语音文件。</translation>
+        <translation>MO2 で FUZ 音声ファイルをプレビューして再生します。</translation>
     </message>
     <message>
         <location filename="plugin.py" line="56"/>
         <source>Start playback automatically after decode.</source>
-        <translation>解码完成后自动开始播放。</translation>
+        <translation>デコード後に自動で再生を開始します。</translation>
     </message>
     <message>
         <location filename="plugin.py" line="61"/>
         <source>Default preview volume (0-100).</source>
-        <translation>默认预览音量 (0-100)。</translation>
+        <translation>既定のプレビュー音量 (0-100)。</translation>
     </message>
     <message>
         <location filename="plugin.py" line="66"/>
         <source>Enable extra runtime diagnostics in preview widgets.</source>
-        <translation>在预览窗口中启用额外运行时诊断信息。</translation>
+        <translation>プレビューウィジェットで追加のランタイム診断を有効にします。</translation>
     </message>
     <message>
         <location filename="plugin.py" line="172"/>
         <source>vendor_dir: {path}</source>
-        <translation>vendor_dir: {path}</translation>
+        <translation>vendor ディレクトリ: {path}</translation>
     </message>
     <message>
         <location filename="plugin.py" line="177"/>
         <source>pyav_available: {value}</source>
-        <translation>pyav_available: {value}</translation>
+        <translation>PyAV 利用可: {value}</translation>
     </message>
     <message>
         <location filename="plugin.py" line="182"/>
         <source>qt_multimedia_available: {value}</source>
-        <translation>qt_multimedia_available: {value}</translation>
+        <translation>Qt Multimedia 利用可: {value}</translation>
     </message>
     <message>
         <location filename="plugin.py" line="192"/>
         <source>Header bytes: {hex_head} | {ascii_head}</source>
-        <translation>头部字节: {hex_head} | {ascii_head}</translation>
+        <translation>ヘッダーバイト: {hex_head} | {ascii_head}</translation>
     </message>
     <message>
         <location filename="plugin.py" line="201"/>
         <source>Embedded audio header: {hex_head} | {ascii_head}</source>
-        <translation>内嵌音频头: {hex_head} | {ascii_head}</translation>
+        <translation>埋め込み音声ヘッダー: {hex_head} | {ascii_head}</translation>
     </message>
 </context>
 <context>
@@ -202,7 +202,7 @@
         <location filename="preview.py" line="75"/>
         <location filename="preview.py" line="78"/>
         <source>No playback backend is available.</source>
-        <translation>没有可用的播放后端。</translation>
+        <translation>利用可能な再生バックエンドがありません。</translation>
     </message>
 </context>
 <context>
@@ -210,42 +210,42 @@
     <message>
         <location filename="controller.py" line="55"/>
         <source>Waiting to decode audio.</source>
-        <translation>等待解码音频。</translation>
+        <translation>音声のデコードを待機しています。</translation>
     </message>
     <message>
         <location filename="controller.py" line="64"/>
         <source>Decoding embedded audio...</source>
-        <translation>正在解码内嵌音频...</translation>
+        <translation>埋め込み音声をデコード中...</translation>
     </message>
     <message>
         <location filename="controller.py" line="77"/>
         <source>Unable to decode embedded audio.</source>
-        <translation>无法解码内嵌音频。</translation>
+        <translation>埋め込み音声をデコードできません。</translation>
     </message>
     <message>
         <location filename="controller.py" line="91"/>
         <source>Ready to play ({backend}).</source>
-        <translation>已准备播放 ({backend})。</translation>
+        <translation>再生準備完了 ({backend})。</translation>
     </message>
     <message>
         <location filename="controller.py" line="98"/>
         <source>Playing ({backend}).</source>
-        <translation>播放中 ({backend})。</translation>
+        <translation>再生中 ({backend})。</translation>
     </message>
     <message>
         <location filename="controller.py" line="112"/>
         <source>Paused.</source>
-        <translation>已暂停。</translation>
+        <translation>一時停止しました。</translation>
     </message>
     <message>
         <location filename="controller.py" line="116"/>
         <source>Playing.</source>
-        <translation>播放中。</translation>
+        <translation>再生中。</translation>
     </message>
     <message>
         <location filename="controller.py" line="125"/>
         <source>Stopped.</source>
-        <translation>已停止。</translation>
+        <translation>停止しました。</translation>
     </message>
 </context>
 <context>
@@ -253,12 +253,12 @@
     <message>
         <location filename="models.py" line="16"/>
         <source>Loose file</source>
-        <translation>松散文件</translation>
+        <translation>単体ファイル</translation>
     </message>
     <message>
         <location filename="models.py" line="17"/>
         <source>Archive entry</source>
-        <translation>压缩包条目</translation>
+        <translation>アーカイブ項目</translation>
     </message>
 </context>
 <context>
@@ -266,7 +266,7 @@
     <message>
         <location filename="models.py" line="145"/>
         <source>Waiting to decode audio.</source>
-        <translation>等待解码音频。</translation>
+        <translation>音声のデコードを待機しています。</translation>
     </message>
 </context>
 <context>
@@ -280,32 +280,32 @@
     <message>
         <location filename="runtime.py" line="156"/>
         <source>Python runtime: {version}</source>
-        <translation>Python 运行时: {version}</translation>
+        <translation>Python ランタイム: {version}</translation>
     </message>
     <message>
         <location filename="runtime.py" line="163"/>
         <source>Bundled PyAV wheel metadata was not found.</source>
-        <translation>未找到捆绑的 PyAV wheel 元数据。</translation>
+        <translation>同梱された PyAV wheel のメタデータが見つかりませんでした。</translation>
     </message>
     <message>
         <location filename="runtime.py" line="170"/>
         <source>Bundled PyAV wheel metadata could not be read: {error}</source>
-        <translation>无法读取捆绑的 PyAV wheel 元数据: {error}</translation>
+        <translation>同梱された PyAV wheel のメタデータを読み取れませんでした: {error}</translation>
     </message>
     <message>
         <location filename="runtime.py" line="178"/>
         <source>Bundled PyAV wheel tag is missing.</source>
-        <translation>捆绑的 PyAV wheel 标签缺失。</translation>
+        <translation>同梱された PyAV wheel のタグがありません。</translation>
     </message>
     <message>
         <location filename="runtime.py" line="182"/>
         <source>Bundled PyAV wheel tag: {tag}</source>
-        <translation>捆绑的 PyAV wheel 标签: {tag}</translation>
+        <translation>同梱された PyAV wheel のタグ: {tag}</translation>
     </message>
     <message>
         <location filename="runtime.py" line="187"/>
         <source>Bundled PyAV wheel requires Python &gt;= {required_major}.{required_minor}, current runtime is {runtime_major}.{runtime_minor}.</source>
-        <translation>捆绑的 PyAV wheel 需要 Python &gt;= {required_major}.{required_minor}，当前运行时为 {runtime_major}.{runtime_minor}。</translation>
+        <translation>同梱された PyAV wheel には Python &gt;= {required_major}.{required_minor} が必要ですが、現在のランタイムは {runtime_major}.{runtime_minor} です。</translation>
     </message>
 </context>
 <context>
@@ -313,22 +313,22 @@
     <message>
         <location filename="preview.py" line="512"/>
         <source>PyQt6 runtime is unavailable: {error}</source>
-        <translation>PyQt6 运行时不可用: {error}</translation>
+        <translation>PyQt6 ランタイムを利用できません: {error}</translation>
     </message>
     <message>
         <location filename="preview.py" line="518"/>
         <source>File: {file_name}</source>
-        <translation>文件: {file_name}</translation>
+        <translation>ファイル: {file_name}</translation>
     </message>
     <message>
         <location filename="preview.py" line="519"/>
         <source>Source: {source_label}</source>
-        <translation>来源: {source_label}</translation>
+        <translation>ソース: {source_label}</translation>
     </message>
     <message>
         <location filename="preview.py" line="524"/>
         <source>Playback backend: MCI fallback</source>
-        <translation>播放后端: MCI 回退</translation>
+        <translation>再生バックエンド: MCI フォールバック</translation>
     </message>
     <message>
         <location filename="preview.py" line="527"/>
@@ -339,17 +339,17 @@
     <message>
         <location filename="preview.py" line="537"/>
         <source>Playback backend: unavailable</source>
-        <translation>播放后端: 不可用</translation>
+        <translation>再生バックエンド: 利用不可</translation>
     </message>
     <message>
         <location filename="preview.py" line="540"/>
         <source>Parse status: {error}</source>
-        <translation>解析状态: {error}</translation>
+        <translation>解析状態: {error}</translation>
     </message>
     <message>
         <location filename="preview.py" line="542"/>
         <source>Invalid FUZ container.</source>
-        <translation>无效的 FUZ 容器。</translation>
+        <translation>無効な FUZ コンテナーです。</translation>
     </message>
 </context>
 </TS>

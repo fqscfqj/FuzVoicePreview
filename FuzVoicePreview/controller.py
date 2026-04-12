@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
-from .i18n import QCoreApplication
+from .translation import QCoreApplication
 from .models import DecodeResult, FuzPayload, PreviewSettings, PreviewState
 from .playback import soften_wav_start
 

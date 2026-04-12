@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import ctypes
 
-from .i18n import QCoreApplication
+from .translation import QCoreApplication
 
 
 _DLL_HANDLES: list[object] = []
