@@ -16,7 +16,7 @@ RELEASE_EXCLUDES = (
     "*.pyc",
     "*.pyo",
 )
-SUPPORTED_PYTHON_VERSIONS = ("3.11",)
+SUPPORTED_PYTHON_VERSIONS = ("3.12",)
 RUNTIME_DLL_PATTERNS = ("python3.dll", "vcruntime140*.dll")
 RUNTIME_SEARCH_DIRS = (
     Path(sys.base_prefix),

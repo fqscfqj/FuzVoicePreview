@@ -1,7 +1,8 @@
 Drop bundled runtime dependencies here.
 
 Expected layout:
-- `vendor/site-packages/` for bundled Python packages such as `av`
+- `vendor/site-packages-py312/` for bundled Python packages such as `av` in the release bundle
+- `vendor/site-packages/` as an optional fallback for local single-runtime builds
 - `vendor/bin/` for native DLLs required by bundled wheels
   - include FFmpeg DLLs from the PyAV wheel
   - include `python3.dll` plus `vcruntime140*.dll` when the host embeds Python without the stable-ABI/runtime DLLs on its search path
