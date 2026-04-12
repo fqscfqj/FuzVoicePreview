@@ -31,13 +31,13 @@ class FuzVoicePreviewPlugin(BasePlugin):
         return True
 
     def name(self) -> str:
-        return "FUZ Voice Preview"
+        return "Preview FUZ"
 
     def localizedName(self) -> str:
-        return QCoreApplication.translate("FuzVoicePreviewPlugin", "FUZ Voice Preview")
+        return QCoreApplication.translate("FuzVoicePreviewPlugin", "Preview FUZ")
 
     def author(self) -> str:
-        return "OpenAI"
+        return "fqscfqj"
 
     def description(self) -> str:
         return QCoreApplication.translate("FuzVoicePreviewPlugin", "Preview and play FUZ voice files in MO2.")

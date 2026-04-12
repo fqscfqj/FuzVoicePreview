@@ -313,7 +313,7 @@ def test_preferred_variant_mod_name_returns_none_without_matching_title():
 def test_plugin_translation_methods_do_not_require_pyqt6_runtime():
     plugin = FuzVoicePreviewPlugin()
 
-    assert plugin.localizedName() == "FUZ Voice Preview"
+    assert plugin.localizedName() == "Preview FUZ"
     assert plugin.description() == "Preview and play FUZ voice files in MO2."
 
 
