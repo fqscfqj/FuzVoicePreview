@@ -80,7 +80,7 @@ class FuzVoicePreviewPlugin(BasePlugin):
         file_path = self._resolve_preview_path(fileName)
         return self._build_preview(
             raw_data=file_path.read_bytes(),
-            file_name=file_path.name,
+            file_name=Path(fileName).name or file_path.name,
             source=PreviewSource.FILE,
         )
 
@@ -120,9 +120,11 @@ class FuzVoicePreviewPlugin(BasePlugin):
 
     def _resolve_preview_path(self, file_name: str) -> Path:
         direct_path = Path(file_name)
-        if direct_path.exists():
-            return direct_path
-        if self._organizer is not None:
+        for candidate in self._concrete_preview_path_candidates(file_name):
+            if candidate.exists():
+                return candidate
+
+        if self._organizer is not None and not direct_path.is_absolute():
             try:
                 resolved = self._organizer.resolvePath(file_name)
             except Exception:
@@ -132,6 +134,56 @@ class FuzVoicePreviewPlugin(BasePlugin):
                 if resolved_path.exists():
                     return resolved_path
         return direct_path
+
+    def _concrete_preview_path_candidates(self, file_name: str) -> tuple[Path, ...]:
+        direct_path = Path(file_name)
+        if direct_path.is_absolute():
+            return (direct_path,)
+
+        normalized = file_name.replace("\\", "/").lstrip("./")
+        candidates: list[Path] = [direct_path]
+        if self._organizer is not None:
+            for root in self._candidate_roots():
+                if not normalized:
+                    continue
+                candidates.append(root / normalized)
+
+        unique: list[Path] = []
+        seen: set[Path] = set()
+        for candidate in candidates:
+            normalized_candidate = candidate.resolve(strict=False)
+            if normalized_candidate in seen:
+                continue
+            seen.add(normalized_candidate)
+            unique.append(candidate)
+        return tuple(unique)
+
+    def _candidate_roots(self) -> tuple[Path, ...]:
+        if self._organizer is None:
+            return ()
+
+        roots: list[Path] = []
+        for getter_name in ("modsPath", "basePath"):
+            getter = getattr(self._organizer, getter_name, None)
+            if getter is None:
+                continue
+            try:
+                value = getter()
+            except Exception:
+                continue
+            if not value:
+                continue
+            roots.append(Path(value))
+
+        unique: list[Path] = []
+        seen: set[Path] = set()
+        for root in roots:
+            normalized_root = root.resolve(strict=False)
+            if normalized_root in seen:
+                continue
+            seen.add(normalized_root)
+            unique.append(root)
+        return tuple(unique)
 
     def _load_settings(self) -> PreviewSettings:
         autoplay = self._plugin_setting("autoplay", True)

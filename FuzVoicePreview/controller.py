@@ -4,6 +4,7 @@ from typing import Callable, Protocol
 
 from .i18n import QCoreApplication
 from .models import DecodeResult, FuzPayload, PreviewSettings, PreviewState
+from .playback import soften_wav_start
 
 
 class PlayerAdapter(Protocol):
@@ -80,7 +81,7 @@ class PreviewController:
             self.state.status_text = self.state.error_text
             return self.state
 
-        self.player.load(result.wav_data)
+        self.player.load(soften_wav_start(result.wav_data))
         self.player.set_volume(self.state.volume)
         self.state.is_ready = True
         self.state.has_error = False

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import tempfile
 import wave
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from FuzVoicePreview.playback import (
     MciWavePlayerCore,
     _scale_pcm_frames,
     scale_wav_volume,
+    soften_wav_start,
 )
 from FuzVoicePreview.plugin import FuzVoicePreviewPlugin
 
@@ -104,6 +106,24 @@ class FakeExclusivePlayer:
         self.pause_calls += 1
 
 
+class FakeOrganizer:
+    def __init__(self, *, resolved_path: str = "", mods_path: str = "", base_path: str = ""):
+        self.resolved_path = resolved_path
+        self.mods_path = mods_path
+        self.base_path = base_path
+        self.resolve_calls: list[str] = []
+
+    def resolvePath(self, file_name: str) -> str:
+        self.resolve_calls.append(file_name)
+        return self.resolved_path
+
+    def modsPath(self) -> str:
+        return self.mods_path
+
+    def basePath(self) -> str:
+        return self.base_path
+
+
 def test_scale_wav_volume_passthrough_at_full_volume():
     wav_data = build_wav_bytes(sample_width=2, samples=[1000, -1000, 500])
 
@@ -142,6 +162,19 @@ def test_scale_wav_volume_preserves_wav_header_parameters():
 
     with wave.open(io.BytesIO(wav_data), "rb") as original, wave.open(io.BytesIO(scaled), "rb") as updated:
         assert updated.getparams() == original.getparams()
+
+
+def test_soften_wav_start_applies_short_fade_in_to_pcm_data():
+    wav_data = build_wav_bytes(sample_width=2, samples=[12000, 12000, 12000, 12000], sample_rate=1000)
+
+    softened = soften_wav_start(wav_data, fade_in_ms=4)
+
+    with wave.open(io.BytesIO(softened), "rb") as wav_file:
+        samples = decode_samples(wav_file.readframes(wav_file.getnframes()), 2)
+
+    assert samples[0] == 0
+    assert 0 < samples[1] < 12000
+    assert samples[2] < samples[3] <= 12000
 
 
 def test_mci_wave_player_core_preserves_position_and_playback_state_during_volume_rebuild():
@@ -191,6 +224,42 @@ def test_exclusive_playback_coordinator_ignores_repeated_activation_and_release(
     coordinator.activate(player)
 
     assert player.pause_calls == 0
+
+
+def test_plugin_resolve_preview_path_prefers_exact_mod_scoped_file_before_virtual_override():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        mods_root = temp_root / "mods"
+        specific_file = mods_root / "LowPriorityMod" / "sound" / "voice" / "test.fuz"
+        override_file = temp_root / "override" / "sound" / "voice" / "test.fuz"
+        specific_file.parent.mkdir(parents=True, exist_ok=True)
+        override_file.parent.mkdir(parents=True, exist_ok=True)
+        specific_file.write_bytes(b"specific")
+        override_file.write_bytes(b"override")
+
+        plugin = FuzVoicePreviewPlugin()
+        plugin._organizer = FakeOrganizer(resolved_path=str(override_file), mods_path=str(mods_root), base_path=temp_dir)
+
+        resolved = plugin._resolve_preview_path("LowPriorityMod/sound/voice/test.fuz")
+
+        assert resolved == specific_file
+        assert plugin._organizer.resolve_calls == []
+
+
+def test_plugin_resolve_preview_path_uses_virtual_override_for_data_relative_paths():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        override_file = temp_root / "override" / "sound" / "voice" / "test.fuz"
+        override_file.parent.mkdir(parents=True, exist_ok=True)
+        override_file.write_bytes(b"override")
+
+        plugin = FuzVoicePreviewPlugin()
+        plugin._organizer = FakeOrganizer(resolved_path=str(override_file), mods_path=str(temp_root / "mods"), base_path=temp_dir)
+
+        resolved = plugin._resolve_preview_path("sound/voice/test.fuz")
+
+        assert resolved == override_file
+        assert plugin._organizer.resolve_calls == ["sound/voice/test.fuz"]
 
 
 def test_plugin_translation_methods_do_not_require_pyqt6_runtime():

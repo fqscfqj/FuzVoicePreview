@@ -249,6 +249,48 @@ def scale_wav_volume(wav_data: bytes, volume: int) -> bytes:
     return output.getvalue()
 
 
+def soften_wav_start(wav_data: bytes, *, fade_in_ms: int = 8) -> bytes:
+    if fade_in_ms <= 0:
+        return wav_data
+
+    try:
+        with wave.open(BytesIO(wav_data), "rb") as reader:
+            params = reader.getparams()
+            if reader.getcomptype() != "NONE":
+                return wav_data
+            sample_width = reader.getsampwidth()
+            channels = max(1, reader.getnchannels())
+            sample_rate = max(1, reader.getframerate())
+            frame_count = max(0, reader.getnframes())
+            frame_data = reader.readframes(frame_count)
+    except (wave.Error, EOFError):
+        return wav_data
+
+    if frame_count == 0 or sample_width not in {1, 2, 3, 4}:
+        return wav_data
+
+    fade_frames = min(frame_count, max(1, round(sample_rate * fade_in_ms / 1000)))
+    if fade_frames <= 1:
+        return wav_data
+
+    frame_size = channels * sample_width
+    softened = bytearray(frame_data)
+    for frame_index in range(fade_frames):
+        factor = frame_index / fade_frames
+        frame_offset = frame_index * frame_size
+        for channel_index in range(channels):
+            offset = frame_offset + channel_index * sample_width
+            sample = _decode_pcm_sample(frame_data[offset : offset + sample_width], sample_width)
+            faded = _clamp_pcm_sample(round(sample * factor), sample_width)
+            softened[offset : offset + sample_width] = _encode_pcm_sample(faded, sample_width)
+
+    output = BytesIO()
+    with wave.open(output, "wb") as writer:
+        writer.setparams(params)
+        writer.writeframes(bytes(softened))
+    return output.getvalue()
+
+
 def _scale_pcm_frames(frame_data: bytes, *, sample_width: int, volume: int) -> bytes:
     if sample_width not in {1, 2, 3, 4}:
         raise ValueError(f"Unsupported PCM sample width: {sample_width}")
