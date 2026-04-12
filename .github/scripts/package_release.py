@@ -16,6 +16,7 @@ RELEASE_EXCLUDES = (
     "*.pyc",
     "*.pyo",
 )
+SUPPORTED_PYTHON_VERSIONS = ("3.10", "3.11", "3.12")
 RUNTIME_DLL_PATTERNS = ("python3.dll", "vcruntime140*.dll")
 RUNTIME_SEARCH_DIRS = (
     Path(sys.base_prefix),
@@ -83,12 +84,15 @@ def copy_tree(source_root: Path, destination_root: Path, *, exclude_patterns: tu
 
 
 def validate_bundled_runtime(repo_root: Path) -> None:
-    site_packages = repo_root / "FuzVoicePreview" / "vendor" / "site-packages"
-    av_package = site_packages / "av"
-    av_libs = site_packages / "av.libs"
+    vendor_dir = repo_root / "FuzVoicePreview" / "vendor"
+    candidate_dirs = [vendor_dir / "site-packages"]
+    candidate_dirs.extend(vendor_dir / f"site-packages-py{version.replace('.', '')}" for version in SUPPORTED_PYTHON_VERSIONS)
 
-    if not av_package.exists() or not av_libs.exists():
-        raise SystemExit("PyAV was not installed into FuzVoicePreview/vendor/site-packages before packaging.")
+    for site_packages in candidate_dirs:
+        if (site_packages / "av").exists() and (site_packages / "av.libs").exists():
+            return
+
+    raise SystemExit("PyAV was not installed into any bundled vendor site-packages directory before packaging.")
 
 
 def locate_runtime_dlls() -> list[Path]:

@@ -48,7 +48,7 @@ def _extend_sys_path(vendor_dir: Path) -> None:
     if not vendor_dir.exists():
         return
 
-    candidates = [vendor_dir, vendor_dir / "site-packages", vendor_dir / "python"]
+    candidates = [vendor_dir, _select_vendor_site_packages(vendor_dir), vendor_dir / "python"]
     for candidate in candidates:
         candidate_str = str(candidate)
         if candidate.exists() and candidate_str not in sys.path:
@@ -59,10 +59,11 @@ def _register_dll_directories(vendor_dir: Path) -> None:
     if not vendor_dir.exists():
         return
 
+    site_packages_dir = _select_vendor_site_packages(vendor_dir)
     candidates = [
         vendor_dir,
         vendor_dir / "bin",
-        vendor_dir / "site-packages" / "av.libs",
+        site_packages_dir / "av.libs",
     ]
     candidates.extend(_discover_qt_dll_directories())
 
@@ -136,9 +137,10 @@ def _preload_native_libraries(vendor_dir: Path) -> None:
 
     # Let the loader resolve Python/runtime DLLs from vendor/bin on demand.
     # Preloading them can conflict with MO2's embedded plugin_python host.
+    site_packages_dir = _select_vendor_site_packages(vendor_dir)
     dll_dirs = _dedupe_paths(
         [
-            vendor_dir / "site-packages" / "av.libs",
+            site_packages_dir / "av.libs",
             *_discover_qt_dll_directories(),
         ]
     )
@@ -159,7 +161,7 @@ def _runtime_compatibility_messages(vendor_dir: Path) -> list[str]:
         )
     ]
 
-    wheel_file = next((vendor_dir / "site-packages").glob("av-*.dist-info/WHEEL"), None)
+    wheel_file = next(_select_vendor_site_packages(vendor_dir).glob("av-*.dist-info/WHEEL"), None)
     if wheel_file is None:
         messages.append(QCoreApplication.translate("RuntimeDiagnostics", "Bundled PyAV wheel metadata was not found."))
         return messages
@@ -209,3 +211,14 @@ def _minimum_python_for_tag(tag: str) -> tuple[int, int] | None:
         return int(match.group(1)), int(match.group(2))
 
     return None
+
+
+def _select_vendor_site_packages(
+    vendor_dir: Path,
+    python_version: tuple[int, int] | None = None,
+) -> Path:
+    major, minor = python_version or (sys.version_info.major, sys.version_info.minor)
+    versioned = vendor_dir / f"site-packages-py{major}{minor}"
+    if versioned.exists():
+        return versioned
+    return vendor_dir / "site-packages"
