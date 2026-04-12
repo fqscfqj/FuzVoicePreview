@@ -5,7 +5,12 @@ import wave
 from pathlib import Path
 
 from FuzVoicePreview.i18n import _candidate_translation_paths, _normalize_language_tag
-from FuzVoicePreview.playback import MciWavePlayerCore, _scale_pcm_frames, scale_wav_volume
+from FuzVoicePreview.playback import (
+    ExclusivePlaybackCoordinator,
+    MciWavePlayerCore,
+    _scale_pcm_frames,
+    scale_wav_volume,
+)
 from FuzVoicePreview.plugin import FuzVoicePreviewPlugin
 
 
@@ -90,6 +95,15 @@ class FakeMciTransport:
         raise AssertionError(f"Unexpected MCI command: {command}")
 
 
+class FakeExclusivePlayer:
+    def __init__(self, name: str):
+        self.name = name
+        self.pause_calls = 0
+
+    def pause(self) -> None:
+        self.pause_calls += 1
+
+
 def test_scale_wav_volume_passthrough_at_full_volume():
     wav_data = build_wav_bytes(sample_width=2, samples=[1000, -1000, 500])
 
@@ -153,6 +167,30 @@ def test_mci_wave_player_core_preserves_position_and_playback_state_during_volum
     assert transport.mode == "playing"
     assert snapshot.position_ms == 750
     assert snapshot.is_playing is True
+
+
+def test_exclusive_playback_coordinator_pauses_previous_player():
+    coordinator = ExclusivePlaybackCoordinator()
+    first = FakeExclusivePlayer("first")
+    second = FakeExclusivePlayer("second")
+
+    coordinator.activate(first)
+    coordinator.activate(second)
+
+    assert first.pause_calls == 1
+    assert second.pause_calls == 0
+
+
+def test_exclusive_playback_coordinator_ignores_repeated_activation_and_release():
+    coordinator = ExclusivePlaybackCoordinator()
+    player = FakeExclusivePlayer("only")
+
+    coordinator.activate(player)
+    coordinator.activate(player)
+    coordinator.release(player)
+    coordinator.activate(player)
+
+    assert player.pause_calls == 0
 
 
 def test_plugin_translation_methods_do_not_require_pyqt6_runtime():

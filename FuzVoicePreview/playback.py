@@ -7,7 +7,7 @@ import wave
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 
 try:  # pragma: no cover - Windows only
@@ -17,6 +17,37 @@ except Exception:  # pragma: no cover - non-Windows or missing DLL
 
 
 MCI_AVAILABLE = os.name == "nt" and _WINMM is not None
+
+
+class ExclusivePlaybackPlayer(Protocol):
+    def pause(self) -> None:
+        ...
+
+
+class ExclusivePlaybackCoordinator:
+    def __init__(self):
+        self._active_player: ExclusivePlaybackPlayer | None = None
+
+    def activate(self, player: ExclusivePlaybackPlayer) -> None:
+        previous = self._active_player
+        if previous is player:
+            return
+
+        self._active_player = player
+        if previous is None:
+            return
+
+        try:
+            previous.pause()
+        except Exception:
+            return
+
+    def release(self, player: ExclusivePlaybackPlayer) -> None:
+        if self._active_player is player:
+            self._active_player = None
+
+
+PLAYBACK_COORDINATOR = ExclusivePlaybackCoordinator()
 
 
 @dataclass(frozen=True)
