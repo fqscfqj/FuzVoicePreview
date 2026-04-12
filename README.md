@@ -22,7 +22,7 @@ FUZ Voice Preview 是一个面向 Mod Organizer 2 的 Python 预览插件，用�
 
 如果你的 MO2 环境已经提供 `mobase` 和 `PyQt6`，完整发布包通常可以直接工作。发布包中包含 PyAV 以及所需的本地 DLL，因此一般不需要额外手动安装这些组件。
 
-源码仓库默认只保留 `FuzVoicePreview/vendor/README.md` 作为目录说明；`vendor/bin/`、`vendor/site-packages/` 和可选的 `vendor/python/` 视为发布期运行时文件，由本地构建或 Release 资产提供。
+源码仓库默认只保留 `FuzVoicePreview/vendor/README.md` 作为目录说明；`vendor/bin/`、`vendor/site-packages/` 和可选的 `vendor/python/` 视为发布期运行时文件，由 GitHub Actions 在 Release 打包时注入。
 
 ## 使用
 
@@ -74,30 +74,12 @@ python -m pytest
 
 ## 发布
 
-仓库提供了一个 PowerShell 发布脚本，用于同时生成源码包和完整插件包：
+当 GitHub 上创建并发布新的 Release 时，仓库中的 GitHub Actions 会自动完成打包并把两个归档文件附加到该 Release：
 
-```powershell
-pwsh -File .\scripts\build-release.ps1 -Version 1.0.0
-```
+- `fuz-source-<tag>.zip`：源码归档，排除发布期运行时文件。
+- `FuzVoicePreview-release-<tag>.zip`：完整插件包，包含 `vendor` 运行时依赖，可直接用于发布。
 
-默认输出：
-
-- `artifacts/fuz-source-<version>.zip`：源码归档，排除 `vendor` 下的二进制与内嵌包。
-- `artifacts/FuzVoicePreview-release-<version>.zip`：完整插件包，包含 `vendor` 运行时依赖，可直接用于发布。
-
-常用参数：
-
-```powershell
-pwsh -File .\scripts\build-release.ps1 -Version 1.0.0 -SourceOnly
-pwsh -File .\scripts\build-release.ps1 -Version 1.0.0 -ReleaseOnly -VendorSource D:\bundles\FuzVoicePreview\vendor
-pwsh -File .\scripts\build-release.ps1 -Version 1.0.0 -DryRun
-```
-
-第一次把仓库切换到“源码不跟踪 `vendor` 二进制”模式时，如果这些目录已经被 Git 跟踪，需要额外执行一次：
-
-```powershell
-git rm -r --cached FuzVoicePreview/vendor/bin FuzVoicePreview/vendor/site-packages FuzVoicePreview/vendor/python
-```
+如果需要重新打包，只要重新运行对应的 Release 工作流即可。
 
 ## 依赖说明
 
