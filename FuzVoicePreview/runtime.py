@@ -9,6 +9,8 @@ from pathlib import Path
 import re
 import ctypes
 
+from .i18n import QCoreApplication
+
 
 _DLL_HANDLES: list[object] = []
 
@@ -80,7 +82,12 @@ def _module_available(module_name: str, messages: list[str]) -> bool:
         importlib.import_module(module_name)
         return True
     except Exception as exc:
-        messages.append(f"{module_name}: {exc}")
+        messages.append(
+            QCoreApplication.translate("RuntimeDiagnostics", "{module_name}: {error}").format(
+                module_name=module_name,
+                error=exc,
+            )
+        )
         return False
 
 
@@ -145,31 +152,47 @@ def _preload_native_libraries(vendor_dir: Path) -> None:
 
 
 def _runtime_compatibility_messages(vendor_dir: Path) -> list[str]:
-    messages = [f"Python runtime: {sys.version.split()[0]}"]
+    messages = [
+        QCoreApplication.translate("RuntimeDiagnostics", "Python runtime: {version}").format(
+            version=sys.version.split()[0]
+        )
+    ]
 
     wheel_file = next((vendor_dir / "site-packages").glob("av-*.dist-info/WHEEL"), None)
     if wheel_file is None:
-        messages.append("Bundled PyAV wheel metadata was not found.")
+        messages.append(QCoreApplication.translate("RuntimeDiagnostics", "Bundled PyAV wheel metadata was not found."))
         return messages
 
     try:
         wheel_text = wheel_file.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
-        messages.append(f"Bundled PyAV wheel metadata could not be read: {exc}")
+        messages.append(
+            QCoreApplication.translate(
+                "RuntimeDiagnostics", "Bundled PyAV wheel metadata could not be read: {error}"
+            ).format(error=exc)
+        )
         return messages
 
     tag_match = re.search(r"^Tag:\s*(.+)$", wheel_text, re.MULTILINE)
     if tag_match is None:
-        messages.append("Bundled PyAV wheel tag is missing.")
+        messages.append(QCoreApplication.translate("RuntimeDiagnostics", "Bundled PyAV wheel tag is missing."))
         return messages
 
     tag = tag_match.group(1).strip()
-    messages.append(f"Bundled PyAV wheel tag: {tag}")
+    messages.append(QCoreApplication.translate("RuntimeDiagnostics", "Bundled PyAV wheel tag: {tag}").format(tag=tag))
 
     required = _minimum_python_for_tag(tag)
     if required is not None and sys.version_info < required:
         messages.append(
-            f"Bundled PyAV wheel requires Python >= {required[0]}.{required[1]}, current runtime is {sys.version_info.major}.{sys.version_info.minor}."
+            QCoreApplication.translate(
+                "RuntimeDiagnostics",
+                "Bundled PyAV wheel requires Python >= {required_major}.{required_minor}, current runtime is {runtime_major}.{runtime_minor}.",
+            ).format(
+                required_major=required[0],
+                required_minor=required[1],
+                runtime_major=sys.version_info.major,
+                runtime_minor=sys.version_info.minor,
+            )
         )
 
     return messages

@@ -1,24 +1,13 @@
 from __future__ import annotations
 
-import io
 import pathlib
-import tempfile
-import time
-import wave
 from typing import Callable
 
 from .controller import PreviewController
 from .decoder import AudioDecoder
+from .i18n import QCoreApplication
 from .models import DecodeResult, FuzPayload, PreviewSettings
-
-try:  # pragma: no cover - Windows only
-    import winsound
-
-    WINSOUND_AVAILABLE = True
-    WINSOUND_IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover - non-Windows or stripped runtime
-    WINSOUND_AVAILABLE = False
-    WINSOUND_IMPORT_ERROR = exc
+from .playback import MCI_AVAILABLE, MciPlaybackSnapshot, MciWavePlayerCore
 
 try:  # pragma: no cover - exercised only inside MO2 / PyQt6 runtime
     from PyQt6.QtCore import (
@@ -83,10 +72,10 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         error_changed = pyqtSignal(str)
 
         def load(self, wav_data: bytes) -> None:
-            self.error_changed.emit("No playback backend is available.")
+            self.error_changed.emit(QCoreApplication.translate("NullMediaPlayerAdapter", "No playback backend is available."))
 
         def play(self) -> None:
-            self.error_changed.emit("No playback backend is available.")
+            self.error_changed.emit(QCoreApplication.translate("NullMediaPlayerAdapter", "No playback backend is available."))
 
         def pause(self) -> None:
             return None
@@ -163,10 +152,10 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                     self.error_changed.emit(error_string)
 
         PlayerAdapterClass = QtMediaPlayerAdapter
-    elif WINSOUND_AVAILABLE:
-        class WinsoundPlayerAdapter(QObject):
-            supports_seek = False
-            supports_volume = False
+    elif MCI_AVAILABLE:
+        class MciWavePlayerAdapter(QObject):
+            supports_seek = True
+            supports_volume = True
             position_changed = pyqtSignal(int)
             duration_changed = pyqtSignal(int)
             playback_changed = pyqtSignal(bool)
@@ -174,98 +163,101 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
             def __init__(self, parent: QWidget | None = None):
                 super().__init__(parent)
-                self._duration_ms = 0
-                self._position_ms = 0
-                self._temp_file: pathlib.Path | None = None
-                self._started_at: float | None = None
+                self._player = MciWavePlayerCore()
+                self._snapshot = MciPlaybackSnapshot(position_ms=0, duration_ms=0, is_playing=False)
                 self._timer = QTimer(self)
                 self._timer.setInterval(200)
                 self._timer.timeout.connect(self._on_tick)
 
             def load(self, wav_data: bytes) -> None:
-                self.stop()
-                self._cleanup_temp_file()
-                self._duration_ms = _wav_duration_ms(wav_data)
-                self._position_ms = 0
-                self.duration_changed.emit(self._duration_ms)
-                self.position_changed.emit(0)
-
-                temp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
                 try:
-                    temp.write(wav_data)
-                finally:
-                    temp.close()
-                self._temp_file = pathlib.Path(temp.name)
-
-            def play(self) -> None:
-                if self._temp_file is None:
-                    self.error_changed.emit("No decoded WAV payload is loaded.")
-                    return
-
-                try:
-                    winsound.PlaySound(
-                        str(self._temp_file),
-                        winsound.SND_ASYNC | winsound.SND_FILENAME | winsound.SND_NODEFAULT,
-                    )
-                except RuntimeError as exc:
+                    self._player.load(wav_data)
+                except Exception as exc:
                     self.error_changed.emit(str(exc))
                     return
+                self._timer.stop()
+                self._publish_snapshot(self._player.poll(), force_duration=True, force_position=True, force_playback=True)
 
-                self._position_ms = 0
-                self._started_at = time.monotonic()
-                self.position_changed.emit(0)
+            def play(self) -> None:
+                try:
+                    self._player.play()
+                except Exception as exc:
+                    self.error_changed.emit(str(exc))
+                    return
                 self._timer.start()
-                self.playback_changed.emit(True)
+                self._publish_snapshot(self._player.poll(), force_playback=True)
 
             def pause(self) -> None:
-                self._stop_playback(reset_position=False)
+                try:
+                    self._player.pause()
+                except Exception as exc:
+                    self.error_changed.emit(str(exc))
+                    return
+                self._timer.stop()
+                self._publish_snapshot(self._player.poll(), force_playback=True, force_position=True)
 
             def stop(self) -> None:
-                self._stop_playback(reset_position=True)
+                try:
+                    self._player.stop()
+                except Exception as exc:
+                    self.error_changed.emit(str(exc))
+                    return
+                self._timer.stop()
+                self._publish_snapshot(self._player.poll(), force_playback=True, force_position=True)
 
             def set_volume(self, volume: int) -> None:
-                return None
+                try:
+                    self._player.set_volume(volume)
+                except Exception as exc:
+                    self.error_changed.emit(str(exc))
+                    return
+                self._publish_snapshot(self._player.poll(), force_duration=True, force_position=True)
 
             def set_position(self, position_ms: int) -> None:
-                return None
+                try:
+                    self._player.set_position(position_ms)
+                except Exception as exc:
+                    self.error_changed.emit(str(exc))
+                    return
+                self._publish_snapshot(self._player.poll(), force_position=True)
 
             def close(self) -> None:
-                self._stop_playback(reset_position=True)
-                self._cleanup_temp_file()
+                self._timer.stop()
+                self._player.close()
+                self._snapshot = MciPlaybackSnapshot(position_ms=0, duration_ms=0, is_playing=False)
 
             def _on_tick(self) -> None:
-                if self._started_at is None:
-                    return
-                self._position_ms = min(int((time.monotonic() - self._started_at) * 1000), self._duration_ms)
-                self.position_changed.emit(self._position_ms)
-                if self._position_ms >= self._duration_ms:
-                    self._stop_playback(reset_position=True)
-
-            def _stop_playback(self, *, reset_position: bool) -> None:
-                winsound.PlaySound(None, 0)
-                was_playing = self._timer.isActive()
-                self._timer.stop()
-                self._started_at = None
-                if reset_position:
-                    self._position_ms = 0
-                    self.position_changed.emit(0)
-                if was_playing:
-                    self.playback_changed.emit(False)
-
-            def _cleanup_temp_file(self) -> None:
-                if self._temp_file is None:
-                    return
                 try:
-                    self._temp_file.unlink(missing_ok=True)
-                except OSError:
-                    pass
-                self._temp_file = None
+                    snapshot = self._player.poll()
+                except Exception as exc:
+                    self._timer.stop()
+                    self.error_changed.emit(str(exc))
+                    return
+                self._publish_snapshot(snapshot)
+                if not snapshot.is_playing:
+                    self._timer.stop()
 
+            def _publish_snapshot(
+                self,
+                snapshot: MciPlaybackSnapshot,
+                *,
+                force_duration: bool = False,
+                force_position: bool = False,
+                force_playback: bool = False,
+            ) -> None:
+                previous = self._snapshot
+                self._snapshot = snapshot
+                if force_duration or snapshot.duration_ms != previous.duration_ms:
+                    self.duration_changed.emit(snapshot.duration_ms)
+                if force_position or snapshot.position_ms != previous.position_ms:
+                    self.position_changed.emit(snapshot.position_ms)
+                if force_playback or snapshot.is_playing != previous.is_playing:
+                    self.playback_changed.emit(snapshot.is_playing)
 
-        PlayerAdapterClass = WinsoundPlayerAdapter
+        PlayerAdapterClass = MciWavePlayerAdapter
     else:
         PlayerAdapterClass = NullMediaPlayerAdapter
-    PLAYBACK_AVAILABLE = MULTIMEDIA_AVAILABLE or WINSOUND_AVAILABLE
+    PLAYBACK_AVAILABLE = MULTIMEDIA_AVAILABLE or MCI_AVAILABLE
 
 
     class FuzPreviewWidget(QWidget):
@@ -302,13 +294,13 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._status.setWordWrap(True)
             self._status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
-            self._play_button = QPushButton("Play")
-            self._stop_button = QPushButton("Stop")
+            self._play_button = QPushButton(QCoreApplication.translate("FuzPreviewWidget", "Play"))
+            self._stop_button = QPushButton(QCoreApplication.translate("FuzPreviewWidget", "Stop"))
             self._position_slider = QSlider(Qt.Orientation.Horizontal)
             self._time_label = QLabel("0:00 / 0:00")
             self._volume_slider = QSlider(Qt.Orientation.Horizontal)
-            self._export_audio_button = QPushButton("Export Audio")
-            self._export_lip_button = QPushButton("Export LIP")
+            self._export_audio_button = QPushButton(QCoreApplication.translate("FuzPreviewWidget", "Export Audio"))
+            self._export_lip_button = QPushButton(QCoreApplication.translate("FuzPreviewWidget", "Export LIP"))
 
             self._build_layout()
             self._wire_events()
@@ -324,13 +316,13 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._volume_slider.setRange(0, 100)
             self._volume_slider.setValue(self._controller.state.volume)
 
-            controls = QGroupBox("Playback")
+            controls = QGroupBox(QCoreApplication.translate("FuzPreviewWidget", "Playback"))
             controls_layout = QGridLayout()
             controls_layout.addWidget(self._play_button, 0, 0)
             controls_layout.addWidget(self._stop_button, 0, 1)
             controls_layout.addWidget(self._position_slider, 1, 0, 1, 2)
             controls_layout.addWidget(self._time_label, 1, 2)
-            controls_layout.addWidget(QLabel("Volume"), 2, 0)
+            controls_layout.addWidget(QLabel(QCoreApplication.translate("FuzPreviewWidget", "Volume")), 2, 0)
             controls_layout.addWidget(self._volume_slider, 2, 1, 1, 2)
             controls.setLayout(controls_layout)
 
@@ -339,7 +331,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             exports.addWidget(self._export_lip_button)
 
             root = QVBoxLayout()
-            root.addWidget(QLabel("FUZ metadata"))
+            root.addWidget(QLabel(QCoreApplication.translate("FuzPreviewWidget", "FUZ metadata")))
             root.addWidget(self._metadata)
             root.addWidget(self._status)
             root.addWidget(controls)
@@ -361,7 +353,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         def _start_decode(self) -> None:
             if not PLAYBACK_AVAILABLE:
                 self._on_decode_finished(
-                    DecodeResult.failed("No playback backend is available.")
+                    DecodeResult.failed(QCoreApplication.translate("FuzPreviewWidget", "No playback backend is available."))
                 )
                 return
 
@@ -404,9 +396,13 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         def _on_playback_changed(self, is_playing: bool) -> None:
             self._controller.state.is_playing = is_playing
             if is_playing:
-                self._controller.state.status_text = "Playing."
+                self._controller.state.status_text = QCoreApplication.translate("FuzPreviewWidget", "Playing.")
             else:
-                self._controller.state.status_text = "Stopped." if self._controller.state.position_ms == 0 else "Paused."
+                self._controller.state.status_text = (
+                    QCoreApplication.translate("FuzPreviewWidget", "Stopped.")
+                    if self._controller.state.position_ms == 0
+                    else QCoreApplication.translate("FuzPreviewWidget", "Paused.")
+                )
             self._refresh_view()
 
         def _on_player_error(self, error_text: str) -> None:
@@ -438,31 +434,49 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             state = self._controller.state
             diagnostics = list(self._diagnostics)
             if state.error_text:
-                diagnostics.append(f"Decode status: {state.error_text}")
+                diagnostics.append(
+                    QCoreApplication.translate("FuzPreviewWidget", "Decode status: {error_text}").format(
+                        error_text=state.error_text
+                    )
+                )
             if not state.can_play and not state.is_loading and not state.error_text:
-                diagnostics.append("Decode status: Playback is unavailable.")
+                diagnostics.append(
+                    QCoreApplication.translate("FuzPreviewWidget", "Decode status: Playback is unavailable.")
+                )
 
             self._metadata.setPlainText("\n".join(state.metadata_lines + diagnostics))
             self._status.setText(state.status_text)
             self._play_button.setEnabled(state.can_play)
-            self._play_button.setText("Pause" if state.is_playing else "Play")
+            self._play_button.setText(
+                QCoreApplication.translate("FuzPreviewWidget", "Pause")
+                if state.is_playing
+                else QCoreApplication.translate("FuzPreviewWidget", "Play")
+            )
             self._stop_button.setEnabled(state.can_play)
             self._position_slider.setEnabled(state.can_play and getattr(self._player, "supports_seek", True))
-            self._volume_slider.setEnabled(getattr(self._player, "supports_volume", True))
+            self._volume_slider.setEnabled(state.can_play and getattr(self._player, "supports_volume", True))
             self._export_audio_button.setEnabled(state.can_export_audio)
             self._export_lip_button.setEnabled(state.can_export_lip)
             self._time_label.setText(self._controller.current_time_label())
 
         def _export_audio(self) -> None:
             default_name = pathlib.Path(self._payload.file_name).stem + self._payload.audio_export_extension
-            target, _ = QFileDialog.getSaveFileName(self, "Export embedded audio", default_name)
+            target, _ = QFileDialog.getSaveFileName(
+                self,
+                QCoreApplication.translate("FuzPreviewWidget", "Export embedded audio"),
+                default_name,
+            )
             if not target:
                 return
             pathlib.Path(target).write_bytes(self._payload.audio_data)
 
         def _export_lip(self) -> None:
             default_name = pathlib.Path(self._payload.file_name).stem + ".lip"
-            target, _ = QFileDialog.getSaveFileName(self, "Export lip data", default_name)
+            target, _ = QFileDialog.getSaveFileName(
+                self,
+                QCoreApplication.translate("FuzPreviewWidget", "Export lip data"),
+                default_name,
+            )
             if not target:
                 return
             pathlib.Path(target).write_bytes(self._payload.lip_data)
@@ -494,22 +508,40 @@ def build_preview_widget(  # pragma: no cover - exercised only inside MO2 / PyQt
     diagnostics: tuple[str, ...],
 ):
     if not BASIC_QT_AVAILABLE:
-        raise RuntimeError(f"PyQt6 runtime is unavailable: {BASIC_QT_IMPORT_ERROR}")
+        raise RuntimeError(
+            QCoreApplication.translate("build_preview_widget", "PyQt6 runtime is unavailable: {error}").format(
+                error=BASIC_QT_IMPORT_ERROR
+            )
+        )
 
-    lines = [f"File: {file_name}", f"Source: {source_label}"]
+    lines = [
+        QCoreApplication.translate("build_preview_widget", "File: {file_name}").format(file_name=file_name),
+        QCoreApplication.translate("build_preview_widget", "Source: {source_label}").format(source_label=source_label),
+    ]
     lines.extend(diagnostics)
     if not MULTIMEDIA_AVAILABLE:
-        if WINSOUND_AVAILABLE:
-            lines.append("Playback backend: winsound fallback")
+        if MCI_AVAILABLE:
+            lines.append(QCoreApplication.translate("build_preview_widget", "Playback backend: MCI fallback"))
             if settings.debug_logging:
-                lines.append(f"PyQt6.QtMultimedia: {MULTIMEDIA_IMPORT_ERROR}")
+                lines.append(
+                    QCoreApplication.translate("build_preview_widget", "PyQt6.QtMultimedia: {error}").format(
+                        error=MULTIMEDIA_IMPORT_ERROR
+                    )
+                )
         else:
-            lines.append(f"PyQt6.QtMultimedia: {MULTIMEDIA_IMPORT_ERROR}")
-            lines.append(f"winsound: {WINSOUND_IMPORT_ERROR}")
+            lines.append(
+                QCoreApplication.translate("build_preview_widget", "PyQt6.QtMultimedia: {error}").format(
+                    error=MULTIMEDIA_IMPORT_ERROR
+                )
+            )
+            lines.append(QCoreApplication.translate("build_preview_widget", "Playback backend: unavailable"))
 
     if parse_error is not None:
-        lines.append(f"Parse status: {parse_error}")
-        return ErrorPreviewWidget(title="Invalid FUZ container.", lines=lines)
+        lines.append(QCoreApplication.translate("build_preview_widget", "Parse status: {error}").format(error=parse_error))
+        return ErrorPreviewWidget(
+            title=QCoreApplication.translate("build_preview_widget", "Invalid FUZ container."),
+            lines=lines,
+        )
 
     assert payload is not None
     return FuzPreviewWidget(
@@ -519,10 +551,3 @@ def build_preview_widget(  # pragma: no cover - exercised only inside MO2 / PyQt
         set_setting=set_setting,
         diagnostics=tuple(lines),
     )
-
-
-def _wav_duration_ms(wav_data: bytes) -> int:
-    with wave.open(io.BytesIO(wav_data), "rb") as wav_file:
-        frame_count = max(0, wav_file.getnframes())
-        sample_rate = max(1, wav_file.getframerate())
-    return int(frame_count * 1000 / sample_rate)

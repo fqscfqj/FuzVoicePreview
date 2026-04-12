@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .i18n import QCoreApplication
+
 
 class PreviewSource(str, Enum):
     FILE = "file"
@@ -11,8 +13,8 @@ class PreviewSource(str, Enum):
     @property
     def label(self) -> str:
         if self is PreviewSource.FILE:
-            return "Loose file"
-        return "Archive entry"
+            return QCoreApplication.translate("PreviewSource", "Loose file")
+        return QCoreApplication.translate("PreviewSource", "Archive entry")
 
 
 class AudioKind(str, Enum):
@@ -64,18 +66,35 @@ class FuzPayload:
 
     def metadata_lines(self) -> list[str]:
         lines = [
-            f"File: {self.file_name}",
-            f"Source: {self.source.label}",
-            f"LIP present: {'yes' if self.has_lip else 'no'}",
-            f"LIP size: {self.lip_size} bytes",
-            f"Embedded audio: {self.audio_signature.label}",
-            f"Embedded audio size: {self.audio_size} bytes",
+            QCoreApplication.translate("FuzPayload", "File: {file_name}").format(file_name=self.file_name),
+            QCoreApplication.translate("FuzPayload", "Source: {source_label}").format(source_label=self.source.label),
+            QCoreApplication.translate("FuzPayload", "LIP present: {value}").format(
+                value=QCoreApplication.translate("FuzPayload", "yes")
+                if self.has_lip
+                else QCoreApplication.translate("FuzPayload", "no")
+            ),
+            QCoreApplication.translate("FuzPayload", "LIP size: {size} bytes").format(size=self.lip_size),
+            QCoreApplication.translate("FuzPayload", "Embedded audio: {label}").format(label=self.audio_signature.label),
+            QCoreApplication.translate("FuzPayload", "Embedded audio size: {size} bytes").format(size=self.audio_size),
         ]
         if self.container_label in {"FUZ", "FUZE"}:
-            lines.insert(2, f"{self.container_label} version: {self.version}")
+            lines.insert(
+                2,
+                QCoreApplication.translate("FuzPayload", "{container_label} version: {version}").format(
+                    container_label=self.container_label,
+                    version=self.version,
+                ),
+            )
         else:
-            lines.insert(2, f"Container: {self.container_label}")
-        lines.extend(f"Parse note: {note}" for note in self.parse_notes)
+            lines.insert(
+                2,
+                QCoreApplication.translate("FuzPayload", "Container: {container_label}").format(
+                    container_label=self.container_label
+                ),
+            )
+        lines.extend(
+            QCoreApplication.translate("FuzPayload", "Parse note: {note}").format(note=note) for note in self.parse_notes
+        )
         return lines
 
 
@@ -122,7 +141,9 @@ class PreviewSettings:
 
 @dataclass
 class PreviewState:
-    status_text: str = "Waiting to decode audio."
+    status_text: str = field(
+        default_factory=lambda: QCoreApplication.translate("PreviewState", "Waiting to decode audio.")
+    )
     is_ready: bool = False
     is_loading: bool = False
     is_playing: bool = False

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .i18n import QCoreApplication
 from .decoder import AudioDecoder
 from .models import PreviewSettings, PreviewSource
 from .parser import FuzFormatError, parse_fuz_bytes
@@ -32,11 +33,14 @@ class FuzVoicePreviewPlugin(BasePlugin):
     def name(self) -> str:
         return "FUZ Voice Preview"
 
+    def localizedName(self) -> str:
+        return QCoreApplication.translate("FuzVoicePreviewPlugin", "FUZ Voice Preview")
+
     def author(self) -> str:
         return "OpenAI"
 
     def description(self) -> str:
-        return "Preview and play FUZ voice files in MO2."
+        return QCoreApplication.translate("FuzVoicePreviewPlugin", "Preview and play FUZ voice files in MO2.")
 
     def version(self):
         if mobase is None:
@@ -47,9 +51,23 @@ class FuzVoicePreviewPlugin(BasePlugin):
         if mobase is None:
             return []
         return [
-            mobase.PluginSetting("autoplay", "Start playback automatically after decode.", True),
-            mobase.PluginSetting("default_volume", "Default preview volume (0-100).", 80),
-            mobase.PluginSetting("debug_logging", "Enable extra runtime diagnostics in preview widgets.", False),
+            mobase.PluginSetting(
+                "autoplay",
+                QCoreApplication.translate("FuzVoicePreviewPlugin", "Start playback automatically after decode."),
+                True,
+            ),
+            mobase.PluginSetting(
+                "default_volume",
+                QCoreApplication.translate("FuzVoicePreviewPlugin", "Default preview volume (0-100)."),
+                80,
+            ),
+            mobase.PluginSetting(
+                "debug_logging",
+                QCoreApplication.translate(
+                    "FuzVoicePreviewPlugin", "Enable extra runtime diagnostics in preview widgets."
+                ),
+                False,
+            ),
         ]
 
     def supportedExtensions(self) -> set[str]:
@@ -144,21 +162,45 @@ class FuzVoicePreviewPlugin(BasePlugin):
         debug_logging = bool(self._plugin_setting("debug_logging", False))
         lines = list(self._runtime.messages)
         if not debug_logging:
-            lines = [line for line in lines if not line.startswith("PyQt6.QtMultimedia:")]
+            prefix = QCoreApplication.translate("RuntimeDiagnostics", "{module_name}: {error}").format(
+                module_name="PyQt6.QtMultimedia",
+                error="",
+            )
+            lines = [line for line in lines if not line.startswith(prefix)]
         if debug_logging:
-            lines.append(f"vendor_dir: {self._runtime.vendor_dir}")
-            lines.append(f"pyav_available: {self._runtime.pyav_available}")
-            lines.append(f"qt_multimedia_available: {self._runtime.qt_multimedia_available}")
+            lines.append(
+                QCoreApplication.translate("FuzVoicePreviewPlugin", "vendor_dir: {path}").format(
+                    path=self._runtime.vendor_dir
+                )
+            )
+            lines.append(
+                QCoreApplication.translate("FuzVoicePreviewPlugin", "pyav_available: {value}").format(
+                    value=self._runtime.pyav_available
+                )
+            )
+            lines.append(
+                QCoreApplication.translate("FuzVoicePreviewPlugin", "qt_multimedia_available: {value}").format(
+                    value=self._runtime.qt_multimedia_available
+                )
+            )
         return tuple(lines)
 
     def _header_diagnostic(self, raw_data: bytes) -> str:
         head = raw_data[:16]
         hex_head = " ".join(f"{byte:02X}" for byte in head) if head else "<empty>"
         ascii_head = "".join(chr(byte) if 32 <= byte < 127 else "." for byte in head)
-        return f"Header bytes: {hex_head} | {ascii_head}"
+        return QCoreApplication.translate("FuzVoicePreviewPlugin", "Header bytes: {hex_head} | {ascii_head}").format(
+            hex_head=hex_head,
+            ascii_head=ascii_head,
+        )
 
     def _embedded_audio_header_diagnostic(self, payload) -> str:
         head = payload.audio_data[:16]
         hex_head = " ".join(f"{byte:02X}" for byte in head) if head else "<empty>"
         ascii_head = "".join(chr(byte) if 32 <= byte < 127 else "." for byte in head)
-        return f"Embedded audio header: {hex_head} | {ascii_head}"
+        return QCoreApplication.translate(
+            "FuzVoicePreviewPlugin", "Embedded audio header: {hex_head} | {ascii_head}"
+        ).format(
+            hex_head=hex_head,
+            ascii_head=ascii_head,
+        )

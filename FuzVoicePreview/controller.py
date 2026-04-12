@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
+from .i18n import QCoreApplication
 from .models import DecodeResult, FuzPayload, PreviewSettings, PreviewState
 
 
@@ -19,6 +20,9 @@ class PlayerAdapter(Protocol):
         ...
 
     def set_volume(self, volume: int) -> None:
+        ...
+
+    def set_position(self, position_ms: int) -> None:
         ...
 
     def close(self) -> None:
@@ -48,7 +52,7 @@ class PreviewController:
         self.settings = settings
         self.on_setting_changed = on_setting_changed
         self.state = PreviewState(
-            status_text="Waiting to decode audio.",
+            status_text=QCoreApplication.translate("PreviewController", "Waiting to decode audio."),
             volume=_clamp_volume(settings.default_volume),
             can_export_audio=True,
             can_export_lip=payload.has_lip,
@@ -57,7 +61,7 @@ class PreviewController:
 
     def mark_loading(self) -> PreviewState:
         self.state.is_loading = True
-        self.state.status_text = "Decoding embedded audio..."
+        self.state.status_text = QCoreApplication.translate("PreviewController", "Decoding embedded audio...")
         self.state.has_error = False
         self.state.error_text = None
         return self.state
@@ -70,7 +74,9 @@ class PreviewController:
             self.state.is_playing = False
             self.state.can_play = False
             self.state.has_error = True
-            self.state.error_text = result.error or "Unable to decode embedded audio."
+            self.state.error_text = result.error or QCoreApplication.translate(
+                "PreviewController", "Unable to decode embedded audio."
+            )
             self.state.status_text = self.state.error_text
             return self.state
 
@@ -82,12 +88,16 @@ class PreviewController:
         self.state.can_play = True
         self.state.duration_ms = result.duration_ms or 0
         backend = result.backend_name or "decoder"
-        self.state.status_text = f"Ready to play ({backend})."
+        self.state.status_text = QCoreApplication.translate("PreviewController", "Ready to play ({backend}).").format(
+            backend=backend
+        )
 
         if self.settings.autoplay:
             self.player.play()
             self.state.is_playing = True
-            self.state.status_text = f"Playing ({backend})."
+            self.state.status_text = QCoreApplication.translate("PreviewController", "Playing ({backend}).").format(
+                backend=backend
+            )
         else:
             self.state.is_playing = False
 
@@ -99,11 +109,11 @@ class PreviewController:
         if self.state.is_playing:
             self.player.pause()
             self.state.is_playing = False
-            self.state.status_text = "Paused."
+            self.state.status_text = QCoreApplication.translate("PreviewController", "Paused.")
         else:
             self.player.play()
             self.state.is_playing = True
-            self.state.status_text = "Playing."
+            self.state.status_text = QCoreApplication.translate("PreviewController", "Playing.")
         return self.state
 
     def stop(self) -> PreviewState:
@@ -112,7 +122,7 @@ class PreviewController:
         self.player.stop()
         self.state.is_playing = False
         self.state.position_ms = 0
-        self.state.status_text = "Stopped."
+        self.state.status_text = QCoreApplication.translate("PreviewController", "Stopped.")
         return self.state
 
     def update_position(self, position_ms: int, duration_ms: int | None = None) -> PreviewState:
