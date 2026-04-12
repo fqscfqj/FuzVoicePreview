@@ -16,7 +16,7 @@ RELEASE_EXCLUDES = (
     "*.pyc",
     "*.pyo",
 )
-SUPPORTED_PYTHON_VERSIONS = ("3.10", "3.11", "3.12")
+SUPPORTED_PYTHON_VERSIONS = ("3.11",)
 RUNTIME_DLL_PATTERNS = ("python3.dll", "vcruntime140*.dll")
 RUNTIME_SEARCH_DIRS = (
     Path(sys.base_prefix),
@@ -114,9 +114,8 @@ def locate_runtime_dlls() -> list[Path]:
     return unique
 
 
-def stage_release_tree(repo_root: Path, version_name: str, temp_root: Path) -> Path:
-    release_stage_root = temp_root / f"FuzVoicePreview-release-{version_name}"
-    plugin_stage_root = release_stage_root / "FuzVoicePreview"
+def stage_release_tree(repo_root: Path, temp_root: Path) -> Path:
+    plugin_stage_root = temp_root / "FuzVoicePreview"
     plugin_stage_root.mkdir(parents=True, exist_ok=True)
 
     copy_tree(
@@ -125,7 +124,7 @@ def stage_release_tree(repo_root: Path, version_name: str, temp_root: Path) -> P
         exclude_patterns=RELEASE_EXCLUDES,
     )
 
-    shutil.copy2(repo_root / "README.md", release_stage_root / "README.md")
+    shutil.copy2(repo_root / "README.md", plugin_stage_root / "README.md")
 
     vendor_bin_dir = plugin_stage_root / "vendor" / "bin"
     vendor_bin_dir.mkdir(parents=True, exist_ok=True)
@@ -135,7 +134,7 @@ def stage_release_tree(repo_root: Path, version_name: str, temp_root: Path) -> P
     for runtime_dll in runtime_dlls:
         shutil.copy2(runtime_dll, vendor_bin_dir / runtime_dll.name)
 
-    return release_stage_root
+    return plugin_stage_root
 
 
 def main() -> None:
@@ -152,7 +151,7 @@ def main() -> None:
     release_archive = output_dir / f"FuzVoicePreview-release-{version_name}.zip"
 
     with tempfile.TemporaryDirectory(prefix="fuz-release-") as temp_dir:
-        release_stage_root = stage_release_tree(repo_root, version_name, Path(temp_dir))
+        release_stage_root = stage_release_tree(repo_root, Path(temp_dir))
         write_zip(
             release_stage_root,
             release_archive,

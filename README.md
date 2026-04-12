@@ -22,7 +22,7 @@ FUZ Voice Preview 是一个面向 Mod Organizer 2 的 Python 预览插件，用�
 
 如果你的 MO2 环境已经提供 `mobase` 和 `PyQt6`，完整发布包通常可以直接工作。发布包中包含 PyAV 以及所需的本地 DLL，因此一般不需要额外手动安装这些组件。
 
-源码仓库默认只保留 `FuzVoicePreview/vendor/README.md` 作为目录说明；`vendor/bin/`、`vendor/site-packages-py*/`、可选的 `vendor/site-packages/` 和 `vendor/python/` 视为发布期运行时文件，由 GitHub Actions 在 Release 打包时注入。
+源码仓库默认只保留 `FuzVoicePreview/vendor/README.md` 作为目录说明；`vendor/bin/`、`vendor/site-packages/` 和可选的 `vendor/python/` 视为发布期运行时文件，由 GitHub Actions 在 Release 打包时注入。
 
 ## 使用
 
@@ -76,7 +76,7 @@ python -m pytest
 
 当 GitHub 上创建并发布新的 Release 时，仓库中的 GitHub Actions 会自动完成打包并把完整插件包附加到该 Release：
 
-- `FuzVoicePreview-release-<tag>.zip`：完整插件包，包含面向 MO2 支持的多个 Python 运行时版本的 `vendor` 依赖，可直接用于发布。
+- `FuzVoicePreview-release-<tag>.zip`：完整插件包，压缩包根目录直接是 `FuzVoicePreview/`，其中包含面向当前 MO2 Python 3.11 运行时的 `vendor` 依赖，可直接用于发布。
 
 如果需要重新打包，只要重新运行对应的 Release 工作流即可。
 
