@@ -433,6 +433,9 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._decode_thread: QThread | None = None
             self._decode_worker: DecodeWorker | None = None
             self._details_card: QFrame | None = None
+            self._decode_started = False
+            self._preview_visible = False
+            self._pending_autoplay = False
 
             self.setObjectName("PreviewRoot")
             self.setStyleSheet(_preview_stylesheet())
@@ -483,9 +486,31 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._build_layout()
             self._wire_events()
             self._refresh_view()
-            self._start_decode()
+
+        def showEvent(self, event) -> None:
+            self._preview_visible = True
+            super().showEvent(event)
+
+            if not self._decode_started:
+                self._start_decode()
+                return
+
+            if self._pending_autoplay and self._controller.state.can_play and not self._controller.state.is_playing:
+                self._pending_autoplay = False
+                self._controller.play()
+                self._refresh_view()
+
+        def hideEvent(self, event) -> None:
+            self._preview_visible = False
+            self._pending_autoplay = False
+            if self._controller.state.is_playing:
+                self._controller.stop()
+                self._refresh_view()
+            super().hideEvent(event)
 
         def closeEvent(self, event) -> None:
+            self._preview_visible = False
+            self._pending_autoplay = False
             self._cleanup_worker()
             self._controller.close()
             super().closeEvent(event)
@@ -604,6 +629,10 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             )
 
         def _start_decode(self) -> None:
+            if self._decode_started:
+                return
+            self._decode_started = True
+
             if not PLAYBACK_AVAILABLE:
                 self._on_decode_finished(
                     DecodeResult.failed(QCoreApplication.translate("FuzPreviewWidget", "No playback backend is available."))
@@ -631,7 +660,11 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._decode_worker = None
 
         def _on_decode_finished(self, result: DecodeResult) -> None:
-            self._controller.apply_decode_result(result)
+            should_autoplay = bool(
+                self._settings.autoplay and self._preview_visible and self.isVisible() and not self.isHidden()
+            )
+            self._pending_autoplay = bool(result.success and result.wav_data and self._settings.autoplay and not should_autoplay)
+            self._controller.apply_decode_result(result, autoplay=should_autoplay)
             self._refresh_view()
             self._cleanup_worker()
 

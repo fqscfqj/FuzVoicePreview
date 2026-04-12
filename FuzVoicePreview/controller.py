@@ -66,7 +66,7 @@ class PreviewController:
         self.state.error_text = None
         return self.state
 
-    def apply_decode_result(self, result: DecodeResult) -> PreviewState:
+    def apply_decode_result(self, result: DecodeResult, *, autoplay: bool | None = None) -> PreviewState:
         self.state.is_loading = False
         self.state.position_ms = 0
         if not result.success or not result.wav_data:
@@ -92,29 +92,43 @@ class PreviewController:
             backend=backend
         )
 
-        if self.settings.autoplay:
-            self.player.play()
-            self.state.is_playing = True
-            self.state.status_text = QCoreApplication.translate("PreviewController", "Playing ({backend}).").format(
-                backend=backend
-            )
+        should_autoplay = self.settings.autoplay if autoplay is None else bool(autoplay)
+        if should_autoplay:
+            self.play(backend_name=backend)
         else:
             self.state.is_playing = False
 
+        return self.state
+
+    def play(self, *, backend_name: str | None = None) -> PreviewState:
+        if not self.state.can_play or self.state.is_playing:
+            return self.state
+
+        self.player.play()
+        self.state.is_playing = True
+        if backend_name is not None:
+            self.state.status_text = QCoreApplication.translate("PreviewController", "Playing ({backend}).").format(
+                backend=backend_name
+            )
+        else:
+            self.state.status_text = QCoreApplication.translate("PreviewController", "Playing.")
+        return self.state
+
+    def pause(self) -> PreviewState:
+        if not self.state.can_play or not self.state.is_playing:
+            return self.state
+
+        self.player.pause()
+        self.state.is_playing = False
+        self.state.status_text = QCoreApplication.translate("PreviewController", "Paused.")
         return self.state
 
     def toggle_play_pause(self) -> PreviewState:
         if not self.state.can_play:
             return self.state
         if self.state.is_playing:
-            self.player.pause()
-            self.state.is_playing = False
-            self.state.status_text = QCoreApplication.translate("PreviewController", "Paused.")
-        else:
-            self.player.play()
-            self.state.is_playing = True
-            self.state.status_text = QCoreApplication.translate("PreviewController", "Playing.")
-        return self.state
+            return self.pause()
+        return self.play()
 
     def stop(self) -> PreviewState:
         if not self.state.can_play:

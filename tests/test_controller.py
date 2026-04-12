@@ -64,6 +64,31 @@ def test_controller_autoplay_starts_playback_after_decode():
     assert ("play", None) in player.calls
 
 
+def test_controller_can_skip_autoplay_when_decode_finishes_in_inactive_view():
+    player = FakePlayer()
+    controller = PreviewController(
+        payload=build_payload(),
+        player=player,
+        settings=PreviewSettings(autoplay=True, default_volume=80),
+    )
+
+    state = controller.apply_decode_result(
+        DecodeResult.ok(
+            wav_data=b"wav",
+            duration_ms=2500,
+            sample_rate=22050,
+            channels=1,
+            backend_name="fake",
+        ),
+        autoplay=False,
+    )
+
+    assert state.is_ready is True
+    assert state.is_playing is False
+    assert ("load", b"wav") in player.calls
+    assert ("play", None) not in player.calls
+
+
 def test_controller_toggle_pause_and_resume():
     player = FakePlayer()
     controller = PreviewController(
