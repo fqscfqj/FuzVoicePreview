@@ -24,6 +24,9 @@ class FakePlayer:
     def set_volume(self, volume: int) -> None:
         self.calls.append(("set_volume", volume))
 
+    def set_position(self, position_ms: int) -> None:
+        self.calls.append(("set_position", position_ms))
+
     def close(self) -> None:
         self.calls.append(("close", None))
 
@@ -128,6 +131,31 @@ def test_controller_updates_volume_and_persists_setting():
     assert controller.state.volume == 100
     assert ("set_volume", 100) in player.calls
     assert ("default_volume", 100) in changed
+
+
+def test_controller_restarts_from_beginning_when_replaying_after_finish():
+    player = FakePlayer()
+    controller = PreviewController(
+        payload=build_payload(),
+        player=player,
+        settings=PreviewSettings(autoplay=False, default_volume=50),
+    )
+    controller.apply_decode_result(
+        DecodeResult.ok(
+            wav_data=b"wav",
+            duration_ms=1000,
+            sample_rate=22050,
+            channels=1,
+            backend_name="fake",
+        )
+    )
+    controller.update_position(1000, 1000)
+
+    controller.play()
+
+    assert ("set_position", 0) in player.calls
+    assert ("play", None) in player.calls
+    assert controller.state.position_ms == 0
 
 
 def test_controller_handles_decode_failure_without_crashing():

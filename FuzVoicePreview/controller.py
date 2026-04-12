@@ -105,6 +105,9 @@ class PreviewController:
         if not self.state.can_play or self.state.is_playing:
             return self.state
 
+        if self.state.duration_ms > 0 and self.state.position_ms >= self.state.duration_ms:
+            self.player.set_position(0)
+            self.state.position_ms = 0
         self.player.play()
         self.state.is_playing = True
         if backend_name is not None:

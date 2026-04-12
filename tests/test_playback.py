@@ -58,6 +58,7 @@ class FakeMciTransport:
         self.duration_ms = duration_ms
         self.position_ms = 0
         self.mode = "stopped"
+        self.volume = 1000
         self.commands: list[str] = []
 
     def send(self, command: str) -> str:
@@ -74,6 +75,9 @@ class FakeMciTransport:
             return str(self.position_ms)
         if command.endswith(" mode"):
             return self.mode
+        if command.startswith("setaudio ") and " volume to " in command:
+            self.volume = int(command.rsplit(" ", 1)[-1])
+            return ""
         if "seek " in command and " to start" in command:
             self.position_ms = 0
             self.mode = "stopped"
@@ -178,7 +182,7 @@ def test_soften_wav_start_applies_short_fade_in_to_pcm_data():
     assert samples[2] < samples[3] <= 12000
 
 
-def test_mci_wave_player_core_preserves_position_and_playback_state_during_volume_rebuild():
+def test_mci_wave_player_core_preserves_position_and_playback_state_during_live_volume_change():
     transport = FakeMciTransport(duration_ms=2000)
     written_payloads: list[bytes] = []
 
@@ -196,10 +200,27 @@ def test_mci_wave_player_core_preserves_position_and_playback_state_during_volum
 
     assert player.supports_seek is True
     assert player.supports_volume is True
-    assert len(written_payloads) == 2
+    assert len(written_payloads) == 1
+    assert "setaudio preview_alias volume to 250" in transport.commands
+    assert transport.volume == 250
     assert transport.position_ms == 750
     assert transport.mode == "playing"
     assert snapshot.position_ms == 750
+    assert snapshot.is_playing is True
+
+
+def test_mci_wave_player_core_replays_from_start_after_reaching_end():
+    transport = FakeMciTransport(duration_ms=1200)
+    player = MciWavePlayerCore(transport=transport, temp_writer=lambda _: Path("fake.wav"), alias="preview_alias")
+    player.load(build_wav_bytes(sample_width=2, samples=[1000] * 32))
+    transport.position_ms = transport.duration_ms
+
+    player.play()
+    snapshot = player.poll()
+
+    assert "seek preview_alias to start" in transport.commands
+    assert "play preview_alias from 0" in transport.commands
+    assert snapshot.position_ms == 0
     assert snapshot.is_playing is True
 
 

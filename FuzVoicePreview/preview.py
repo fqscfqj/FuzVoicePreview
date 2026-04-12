@@ -31,6 +31,8 @@ try:  # pragma: no cover - exercised only inside MO2 / PyQt6 runtime
         QPushButton,
         QSizePolicy,
         QSlider,
+        QStyle,
+        QStyleOptionSlider,
         QStackedWidget,
         QTextEdit,
         QVBoxLayout,
@@ -70,6 +72,46 @@ def preferred_variant_mod_name(available_mod_names: list[str], ancestor_titles: 
 
 
 if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 runtime
+    class ClickableSlider(QSlider):
+        def mousePressEvent(self, event) -> None:
+            if event.button() == Qt.MouseButton.LeftButton:
+                option = QStyleOptionSlider()
+                self.initStyleOption(option)
+                handle_rect = self.style().subControlRect(
+                    QStyle.ComplexControl.CC_Slider,
+                    option,
+                    QStyle.SubControl.SC_SliderHandle,
+                    self,
+                )
+                if handle_rect.contains(event.position().toPoint()):
+                    super().mousePressEvent(event)
+                    return
+
+                if self.orientation() == Qt.Orientation.Horizontal:
+                    position = round(event.position().x())
+                    span = max(1, self.width())
+                    upside_down = self.invertedAppearance()
+                    if self.layoutDirection() == Qt.LayoutDirection.RightToLeft:
+                        upside_down = not upside_down
+                else:
+                    position = round(event.position().y())
+                    span = max(1, self.height())
+                    upside_down = not self.invertedAppearance()
+
+                value = QStyle.sliderValueFromPosition(
+                    self.minimum(),
+                    self.maximum(),
+                    position,
+                    span,
+                    upside_down,
+                )
+                self.setValue(value)
+                event.accept()
+                return
+
+            super().mousePressEvent(event)
+
+
     class DecodeWorker(QObject):
         finished = pyqtSignal(object)
 
@@ -143,6 +185,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 self._player.setSourceDevice(self._buffer)
 
             def play(self) -> None:
+                if self._player.duration() > 0 and self._player.position() >= self._player.duration():
+                    self._player.setPosition(0)
                 PLAYBACK_COORDINATOR.activate(self)
                 self._player.play()
 
@@ -170,6 +214,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
             def _on_playback_state_changed(self, state) -> None:
                 if state != QMediaPlayer.PlaybackState.PlayingState:
+                    if self._player.duration() > 0 and self._player.position() >= self._player.duration():
+                        self.position_changed.emit(self._player.position())
                     PLAYBACK_COORDINATOR.release(self)
                 self.playback_changed.emit(state == QMediaPlayer.PlaybackState.PlayingState)
 
@@ -296,15 +342,15 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
     def _preview_stylesheet() -> str:
         return """
         QWidget#PreviewRoot {
-            background-color: #f4efe7;
-            color: #2d2a26;
+            background-color: #f2f1ee;
+            color: #2f2d2a;
             font-family: "Segoe UI";
         }
         QFrame#StatusCard,
         QFrame#InfoCard,
         QGroupBox#PlaybackGroup {
-            background-color: #fffaf2;
-            border: 1px solid #dbcbb7;
+            background-color: #fbfaf8;
+            border: 1px solid #d4cec5;
             border-radius: 14px;
         }
         QGroupBox#PlaybackGroup {
@@ -315,7 +361,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             subcontrol-origin: margin;
             left: 14px;
             padding: 0 6px;
-            color: #6d5a44;
+            color: #69635c;
             font-weight: 600;
         }
         QLabel#StatusTitle {
@@ -323,54 +369,54 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             font-weight: 600;
         }
         QLabel#StatusHint {
-            color: #6f6255;
+            color: #726b63;
             font-size: 12px;
         }
         QLabel#SummaryItem {
-            background-color: #f7efe2;
-            border: 1px solid #eadcca;
+            background-color: #f6f4f0;
+            border: 1px solid #e2ddd5;
             border-radius: 10px;
             padding: 8px 10px;
-            color: #43382c;
+            color: #403c37;
         }
         QPushButton {
-            background-color: #f7efe2;
-            color: #3c3228;
-            border: 1px solid #cfbda5;
+            background-color: #f4f2ee;
+            color: #3b3834;
+            border: 1px solid #c9c2b8;
             border-radius: 10px;
             padding: 8px 14px;
         }
         QPushButton:hover {
-            background-color: #f1e4d1;
+            background-color: #eeebe6;
         }
         QPushButton:pressed {
-            background-color: #e8d6bb;
+            background-color: #e5e1db;
         }
         QPushButton:disabled {
-            background-color: #ece5dc;
-            color: #a49788;
-            border-color: #ddd2c6;
+            background-color: #ebe8e3;
+            color: #a19a92;
+            border-color: #dad4cc;
         }
         QPushButton#PrimaryButton {
-            background-color: #2f6f65;
+            background-color: #65717a;
             color: #ffffff;
-            border-color: #2b6259;
+            border-color: #5a666f;
             font-weight: 600;
         }
         QPushButton#PrimaryButton:hover {
-            background-color: #387e72;
+            background-color: #707c85;
         }
         QPushButton#PrimaryButton:pressed {
-            background-color: #285b53;
+            background-color: #55616a;
         }
         QPushButton#DangerButton {
-            background-color: #fbf1eb;
-            color: #7d4331;
-            border-color: #dfbca8;
+            background-color: #efebe5;
+            color: #4a4641;
+            border-color: #cfc7bd;
             font-weight: 600;
         }
         QPushButton#DangerButton:hover {
-            background-color: #f8e6dc;
+            background-color: #e8e3dc;
         }
         QPushButton#ExportButton {
             font-weight: 600;
@@ -378,49 +424,53 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         QPushButton#DetailsToggle {
             background-color: transparent;
             border: none;
-            color: #5e4c39;
+            color: #5d5953;
             padding: 2px 0;
             text-align: left;
             font-weight: 600;
         }
         QPushButton#DetailsToggle:hover {
-            color: #2f6f65;
+            color: #4d5a63;
         }
         QLabel#TimeBadge {
-            background-color: #efe5d6;
-            border: 1px solid #d7c4aa;
+            background-color: #f1efeb;
+            border: 1px solid #d1cbc2;
             border-radius: 10px;
             padding: 6px 10px;
-            color: #614f3c;
+            color: #56514b;
             font-weight: 600;
         }
         QLabel#VolumeValue {
-            color: #6a5b4b;
+            color: #666059;
             font-weight: 600;
             min-width: 40px;
         }
         QTextEdit#DetailsText {
-            background-color: #fcf7f1;
-            border: 1px solid #eadcca;
+            background-color: #faf9f6;
+            border: 1px solid #e2ddd5;
             border-radius: 10px;
             padding: 4px;
-            selection-background-color: #d9c3a0;
+            selection-background-color: #ccd3d8;
         }
         QSlider::groove:horizontal {
-            height: 6px;
-            background: #d8cabb;
-            border-radius: 3px;
+            height: 4px;
+            background: #d1cbc3;
+            border-radius: 2px;
         }
         QSlider::sub-page:horizontal {
-            background: #2f6f65;
-            border-radius: 3px;
+            background: #7b868d;
+            border-radius: 2px;
+        }
+        QSlider::add-page:horizontal {
+            background: #d1cbc3;
+            border-radius: 2px;
         }
         QSlider::handle:horizontal {
-            width: 14px;
-            margin: -5px 0;
-            background: #fffdf9;
-            border: 2px solid #2f6f65;
-            border-radius: 7px;
+            width: 12px;
+            margin: -6px 0;
+            background: #fcfbf9;
+            border: 2px solid #7b868d;
+            border-radius: 6px;
         }
         """
 
@@ -486,9 +536,9 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
             self._play_button = QPushButton(QCoreApplication.translate("FuzPreviewWidget", "Play"))
             self._stop_button = QPushButton(QCoreApplication.translate("FuzPreviewWidget", "Stop"))
-            self._position_slider = QSlider(Qt.Orientation.Horizontal)
+            self._position_slider = ClickableSlider(Qt.Orientation.Horizontal)
             self._time_label = QLabel("0:00 / 0:00")
-            self._volume_slider = QSlider(Qt.Orientation.Horizontal)
+            self._volume_slider = ClickableSlider(Qt.Orientation.Horizontal)
             self._volume_value = QLabel()
             self._export_audio_button = QPushButton(QCoreApplication.translate("FuzPreviewWidget", "Export Audio"))
             self._export_lip_button = QPushButton(QCoreApplication.translate("FuzPreviewWidget", "Export LIP"))
@@ -669,7 +719,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._volume_slider.valueChanged.connect(self._change_volume)
             self._export_audio_button.clicked.connect(self._export_audio)
             self._export_lip_button.clicked.connect(self._export_lip)
-            self._position_slider.sliderMoved.connect(self._seek)
+            self._position_slider.valueChanged.connect(self._seek)
             self._player.position_changed.connect(self._on_position_changed)
             self._player.duration_changed.connect(self._on_duration_changed)
             self._player.playback_changed.connect(self._on_playback_changed)
@@ -741,6 +791,11 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._controller.state.is_playing = is_playing
             if is_playing:
                 self._controller.state.status_text = QCoreApplication.translate("FuzPreviewWidget", "Playing.")
+            elif (
+                self._controller.state.duration_ms > 0
+                and self._controller.state.position_ms >= self._controller.state.duration_ms
+            ):
+                self._controller.state.status_text = QCoreApplication.translate("FuzPreviewWidget", "Ready to replay.")
             else:
                 self._controller.state.status_text = (
                     QCoreApplication.translate("FuzPreviewWidget", "Stopped.")
@@ -843,25 +898,25 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
             state = self._controller.state
             if state.has_error:
-                background = "#fbe9e4"
-                border = "#dfb19f"
-                title = "#793523"
-                hint = "#9a5a46"
+                background = "#f4ece8"
+                border = "#d6beb6"
+                title = "#65463f"
+                hint = "#826760"
             elif state.is_loading:
-                background = "#fff4dd"
-                border = "#e2c277"
-                title = "#684f22"
-                hint = "#8c7546"
+                background = "#f5f1e7"
+                border = "#d8cdb0"
+                title = "#665c45"
+                hint = "#83785e"
             elif state.is_playing:
-                background = "#e5f3ef"
-                border = "#8cb9ae"
-                title = "#184840"
-                hint = "#3f6d64"
+                background = "#eceff1"
+                border = "#bcc4c8"
+                title = "#334049"
+                hint = "#58636a"
             else:
-                background = "#f4eee6"
-                border = "#d5c4ad"
-                title = "#3c3228"
-                hint = "#6b5e50"
+                background = "#f3f1ed"
+                border = "#d0c9c0"
+                title = "#3c3935"
+                hint = "#69625a"
 
             self._status_card.setStyleSheet(
                 "QFrame#StatusCard {{"

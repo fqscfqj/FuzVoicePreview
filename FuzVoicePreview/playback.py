@@ -130,6 +130,9 @@ class MciWavePlayerCore:
     def play(self) -> None:
         self._require_media()
         start_position = self._query_position_ms()
+        if self._duration_ms > 0 and start_position >= self._duration_ms:
+            self._send(f"seek {self._alias} to start")
+            start_position = 0
         self._send(f"play {self._alias} from {start_position}")
         self._position_ms = start_position
         self._is_playing = True
@@ -161,12 +164,10 @@ class MciWavePlayerCore:
 
     def set_volume(self, volume: int) -> None:
         clamped = max(0, min(100, int(volume)))
-        if self._source_wav_data is None:
-            self._volume = clamped
-            return
-        current_position = self._query_position_ms()
         self._volume = clamped
-        self._rebuild_media(position_ms=current_position, is_playing=self._is_playing)
+        if self._source_wav_data is None:
+            return
+        self._apply_volume()
 
     def poll(self) -> MciPlaybackSnapshot:
         if self._source_wav_data is None:
@@ -189,11 +190,11 @@ class MciWavePlayerCore:
 
     def _rebuild_media(self, *, position_ms: int, is_playing: bool) -> None:
         self._require_media()
-        scaled_wav = scale_wav_volume(self._source_wav_data, self._volume)
         self._close_media()
-        self._temp_file = self._temp_writer(scaled_wav)
+        self._temp_file = self._temp_writer(self._source_wav_data)
         self._send(f'open "{self._temp_file}" type waveaudio alias {self._alias}')
         self._send(f"set {self._alias} time format milliseconds")
+        self._apply_volume()
         self._duration_ms = self._query_int(f"status {self._alias} length")
         self._position_ms = max(0, min(self._duration_ms, int(position_ms)))
         self._is_playing = False
@@ -220,6 +221,9 @@ class MciWavePlayerCore:
 
     def _query_position_ms(self) -> int:
         return max(0, min(self._duration_ms, self._query_int(f"status {self._alias} position")))
+
+    def _apply_volume(self) -> None:
+        self._send(f"setaudio {self._alias} volume to {self._volume * 10}")
 
     def _query_int(self, command: str) -> int:
         value = self._send(command).strip()
