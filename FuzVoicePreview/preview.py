@@ -698,7 +698,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 status_text=QCoreApplication.translate("FuzPreviewWidget", "Preparing preview..."),
                 is_loading=True,
                 metadata_lines=self._initial_metadata_lines(),
-                volume=settings.default_volume,
+                volume=self._settings.default_volume,
             )
 
             self.setObjectName("PreviewRoot")

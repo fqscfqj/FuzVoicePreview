@@ -15,7 +15,7 @@ class PerformanceTrace:
         self.measurements[name] = round(max(0.0, float(milliseconds)), 3)
 
     def record_count(self, name: str, value: int = 1) -> None:
-        self.counters[name] = int(value)
+        self.counters[name] = self.counters.get(name, 0) + int(value)
 
     def extend(self, other: "PerformanceTrace") -> None:
         self.measurements.update(other.measurements)

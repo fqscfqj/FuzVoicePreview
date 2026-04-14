@@ -236,10 +236,11 @@ def test_performance_trace_formats_counts_separately_from_timings():
     trace = PerformanceTrace()
     trace.record_milliseconds("decode_total_ms", 12.5)
     trace.record_count("decode_cache_hit")
+    trace.record_count("decode_cache_hit")
 
     assert trace.lines() == (
         "Timing | decode_total_ms: 12.500 ms",
-        "Count | decode_cache_hit: 1",
+        "Count | decode_cache_hit: 2",
     )
 
 
