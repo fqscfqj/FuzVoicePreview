@@ -54,7 +54,7 @@ def prepare_preview_data(
     cached = cache.get(request.cache_key) if cache is not None and request.cache_key else None
     performance.record_seconds("preview_cache_lookup_ms", time.perf_counter() - cache_lookup_started)
     if cached is not None:
-        performance.record_milliseconds("preview_cache_hit", 1)
+        performance.record_count("preview_cache_hit")
         return PreparedPreviewData(
             payload=cached.payload,
             parse_error=cached.parse_error,
@@ -62,19 +62,43 @@ def prepare_preview_data(
             performance=performance,
         )
 
+    diagnostics: list[str] = []
     read_started = time.perf_counter()
-    raw_data = _load_preview_bytes(request)
+    try:
+        raw_data = _load_preview_bytes(request)
+    except (OSError, ValueError) as exc:
+        performance.record_seconds("preview_read_ms", time.perf_counter() - read_started)
+        performance.record_seconds("preview_parse_ms", 0.0)
+        diagnostics.append(f"{type(exc).__name__}: {exc}")
+        performance.record_milliseconds(
+            "preview_prepare_total_ms",
+            sum(
+                performance.measurements.get(name, 0.0)
+                for name in (
+                    "preview_cache_lookup_ms",
+                    "preview_read_ms",
+                    "preview_parse_ms",
+                )
+            ),
+        )
+        return PreparedPreviewData(
+            payload=None,
+            parse_error=QCoreApplication.translate("FuzPreviewWidget", "Unable to load preview data."),
+            diagnostics=tuple(diagnostics),
+            performance=performance,
+        )
     performance.record_seconds("preview_read_ms", time.perf_counter() - read_started)
 
     parse_started = time.perf_counter()
     payload = None
     parse_error = None
-    diagnostics: list[str] = []
     try:
         payload = parse_fuz_bytes(raw_data, file_name=request.file_name, source=request.source)
-    except FuzFormatError as exc:
+    except (FuzFormatError, ValueError) as exc:
         parse_error = str(exc)
         diagnostics.append(_header_diagnostic(raw_data))
+        if isinstance(exc, ValueError):
+            diagnostics.append(f"{type(exc).__name__}: {exc}")
     else:
         if payload.audio_signature.label == "Unknown" or payload.container_label != "FUZ":
             diagnostics.append(_header_diagnostic(raw_data))
@@ -676,6 +700,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 status_text=QCoreApplication.translate("FuzPreviewWidget", "Preparing preview..."),
                 is_loading=True,
                 metadata_lines=self._initial_metadata_lines(),
+                volume=settings.default_volume,
             )
 
             self.setObjectName("PreviewRoot")
@@ -938,22 +963,31 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._placeholder_state.status_text = QCoreApplication.translate("FuzPreviewWidget", "Preparing preview...")
             self._refresh_view()
 
-            self._prepare_thread = QThread(self)
+            self._prepare_thread = QThread()
             self._prepare_worker = PreviewPreparationWorker(self._request, self._preview_cache)
             self._prepare_worker.moveToThread(self._prepare_thread)
             self._prepare_thread.started.connect(self._prepare_worker.run)
             self._prepare_worker.finished.connect(self._on_preparation_finished)
             self._prepare_worker.finished.connect(self._prepare_thread.quit)
             self._prepare_worker.finished.connect(self._prepare_worker.deleteLater)
+            self._prepare_thread.finished.connect(self._finalize_prepare_worker_cleanup)
             self._prepare_thread.finished.connect(self._prepare_thread.deleteLater)
             self._prepare_thread.start()
 
         def _cleanup_prepare_worker(self) -> None:
-            if self._prepare_thread is not None and self._prepare_thread.isRunning():
+            if self._prepare_thread is None:
+                self._prepare_worker = None
+                return
+            if self._prepare_thread.isRunning():
                 self._prepare_thread.quit()
-                self._prepare_thread.wait(1000)
-            self._prepare_thread = None
+                return
+            self._finalize_prepare_worker_cleanup()
+
+        def _finalize_prepare_worker_cleanup(self) -> None:
+            if self._prepare_thread is None or self._prepare_thread.isRunning():
+                return
             self._prepare_worker = None
+            self._prepare_thread = None
 
         def _on_preparation_finished(self, prepared: PreparedPreviewData) -> None:
             self._performance.extend(prepared.performance)
@@ -979,6 +1013,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 settings=self._settings,
                 on_setting_changed=self._set_setting,
             )
+            with QSignalBlocker(self._volume_slider):
+                self._volume_slider.setValue(self._controller.state.volume)
             self._refresh_view()
             if self._preview_visible and not self._decode_started:
                 self._start_decode()
@@ -1005,22 +1041,31 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._controller.mark_loading()
             self._refresh_view()
 
-            self._decode_thread = QThread(self)
+            self._decode_thread = QThread()
             self._decode_worker = DecodeWorker(self._payload, self._decoder)
             self._decode_worker.moveToThread(self._decode_thread)
             self._decode_thread.started.connect(self._decode_worker.run)
             self._decode_worker.finished.connect(self._on_decode_finished)
             self._decode_worker.finished.connect(self._decode_thread.quit)
             self._decode_worker.finished.connect(self._decode_worker.deleteLater)
+            self._decode_thread.finished.connect(self._finalize_decode_worker_cleanup)
             self._decode_thread.finished.connect(self._decode_thread.deleteLater)
             self._decode_thread.start()
 
         def _cleanup_worker(self) -> None:
-            if self._decode_thread is not None and self._decode_thread.isRunning():
+            if self._decode_thread is None:
+                self._decode_worker = None
+                return
+            if self._decode_thread.isRunning():
                 self._decode_thread.quit()
-                self._decode_thread.wait(1000)
-            self._decode_thread = None
+                return
+            self._finalize_decode_worker_cleanup()
+
+        def _finalize_decode_worker_cleanup(self) -> None:
+            if self._decode_thread is None or self._decode_thread.isRunning():
+                return
             self._decode_worker = None
+            self._decode_thread = None
 
         def _on_decode_finished(self, decoded: DecodedPreviewData) -> None:
             result = decoded.result

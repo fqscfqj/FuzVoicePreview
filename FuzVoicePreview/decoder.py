@@ -142,7 +142,7 @@ class AudioDecoder:
         if cached is not None:
             if trace is not None:
                 trace.record_seconds("decode_cache_lookup_ms", time.perf_counter() - cache_started)
-                trace.record_milliseconds("decode_cache_hit", 1)
+                trace.record_count("decode_cache_hit")
             return cached
         if trace is not None:
             trace.record_seconds("decode_cache_lookup_ms", time.perf_counter() - cache_started)

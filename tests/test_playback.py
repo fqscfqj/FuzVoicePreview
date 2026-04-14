@@ -8,6 +8,7 @@ from pathlib import Path
 from FuzVoicePreview.cache import LruCache
 from FuzVoicePreview.i18n import _candidate_translation_paths, _normalize_language_tag
 from FuzVoicePreview.models import PreviewSource
+from FuzVoicePreview.perf import PerformanceTrace
 from FuzVoicePreview.playback import (
     ExclusivePlaybackCoordinator,
     MciWavePlayerCore,
@@ -16,7 +17,7 @@ from FuzVoicePreview.playback import (
     scale_wav_volume,
     soften_wav_start,
 )
-from FuzVoicePreview.plugin import FuzVoicePreviewPlugin
+from FuzVoicePreview.plugin import PREVIEW_CACHE_MAX_ENTRIES, FuzVoicePreviewPlugin
 from FuzVoicePreview.preview import PreviewLoadRequest, preferred_variant_mod_name, prepare_preview_data
 
 
@@ -212,7 +213,34 @@ def test_prepare_preview_data_uses_session_cache_for_repeated_file_previews():
         assert first.payload is not None
         assert second.payload is not None
         assert second.payload == first.payload
-        assert second.performance.measurements["preview_cache_hit"] == 1
+        assert second.performance.counters["preview_cache_hit"] == 1
+
+
+def test_prepare_preview_data_returns_error_details_when_source_cannot_be_loaded():
+    request = PreviewLoadRequest(
+        file_name="missing.fuz",
+        source=PreviewSource.FILE,
+        source_label="Loose file",
+        file_path="/home/runner/work/FuzVoicePreview/FuzVoicePreview/tests/does-not-exist.fuz",
+    )
+
+    prepared = prepare_preview_data(request)
+
+    assert prepared.payload is None
+    assert prepared.parse_error == "Unable to load preview data."
+    assert any("FileNotFoundError" in line for line in prepared.diagnostics)
+    assert prepared.performance.measurements["preview_parse_ms"] == 0.0
+
+
+def test_performance_trace_formats_counts_separately_from_timings():
+    trace = PerformanceTrace()
+    trace.record_milliseconds("decode_total_ms", 12.5)
+    trace.record_count("decode_cache_hit")
+
+    assert trace.lines() == (
+        "Timing | decode_total_ms: 12.500 ms",
+        "Count | decode_cache_hit: 1",
+    )
 
 
 def test_mci_wave_player_core_preserves_position_and_playback_state_during_volume_rebuild():
@@ -353,6 +381,12 @@ def test_plugin_translation_methods_do_not_require_pyqt6_runtime():
 
     assert plugin.localizedName() == "Preview FUZ"
     assert plugin.description() == "Preview and play FUZ voice files in MO2."
+
+
+def test_plugin_uses_bounded_preview_cache_size():
+    plugin = FuzVoicePreviewPlugin()
+
+    assert plugin._preview_cache._max_entries == PREVIEW_CACHE_MAX_ENTRIES == 8
 
 
 def test_normalize_language_tag_generates_progressive_fallbacks():

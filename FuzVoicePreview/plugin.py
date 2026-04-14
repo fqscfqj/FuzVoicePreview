@@ -17,6 +17,7 @@ except Exception:  # pragma: no cover - local tests do not ship mobase
 
 
 BasePlugin = mobase.IPluginPreview if mobase is not None else object
+PREVIEW_CACHE_MAX_ENTRIES = 8
 
 
 class FuzVoicePreviewPlugin(BasePlugin):
@@ -26,7 +27,7 @@ class FuzVoicePreviewPlugin(BasePlugin):
         self._organizer = None
         self._runtime: RuntimeDiagnostics | None = None
         self._decoder = AudioDecoder()
-        self._preview_cache = LruCache(max_entries=32)
+        self._preview_cache = LruCache(max_entries=PREVIEW_CACHE_MAX_ENTRIES)
 
     def init(self, organizer) -> bool:
         self._organizer = organizer
