@@ -4,7 +4,7 @@ import importlib
 import io
 import time
 import wave
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Protocol
 
 from .cache import LruCache
@@ -143,7 +143,7 @@ class AudioDecoder:
             if trace is not None:
                 trace.record_seconds("decode_cache_lookup_ms", time.perf_counter() - cache_started)
                 trace.record_milliseconds("decode_cache_hit", 1)
-            return replace(cached)
+            return cached
         if trace is not None:
             trace.record_seconds("decode_cache_lookup_ms", time.perf_counter() - cache_started)
 
@@ -172,7 +172,7 @@ class AudioDecoder:
                 self._cache.put(cache_key, result)
                 if trace is not None:
                     trace.record_seconds("decode_total_ms", time.perf_counter() - decode_started)
-                return replace(result)
+                return result
             if result.error:
                 errors.append(f"{backend.name}: {result.error}")
 

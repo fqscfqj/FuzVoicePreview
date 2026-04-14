@@ -40,6 +40,9 @@ class DecodedPreviewData:
     performance: PerformanceTrace
 
 
+MAX_SUMMARY_LINES = 7
+
+
 def prepare_preview_data(
     request: PreviewLoadRequest,
     *,
@@ -76,11 +79,17 @@ def prepare_preview_data(
             diagnostics.append(_header_diagnostic(raw_data))
             diagnostics.append(_embedded_audio_header_diagnostic(payload))
     performance.record_seconds("preview_parse_ms", time.perf_counter() - parse_started)
-    performance.record_seconds("preview_prepare_total_ms", sum(performance.measurements.get(name, 0.0) / 1000.0 for name in (
-        "preview_cache_lookup_ms",
-        "preview_read_ms",
-        "preview_parse_ms",
-    )))
+    performance.record_milliseconds(
+        "preview_prepare_total_ms",
+        sum(
+            performance.measurements.get(name, 0.0)
+            for name in (
+                "preview_cache_lookup_ms",
+                "preview_read_ms",
+                "preview_parse_ms",
+            )
+        ),
+    )
 
     prepared = PreparedPreviewData(
         payload=payload,
@@ -1126,7 +1135,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 self._metadata.setPlainText(detail_text)
                 self._last_detail_text = detail_text
 
-            summary_lines = tuple(state.metadata_lines[1:7] or state.metadata_lines)
+            summary_lines = tuple(state.metadata_lines[1:MAX_SUMMARY_LINES] or state.metadata_lines)
             if summary_lines != self._last_summary_lines:
                 self._set_summary_lines(list(summary_lines))
                 self._last_summary_lines = summary_lines
