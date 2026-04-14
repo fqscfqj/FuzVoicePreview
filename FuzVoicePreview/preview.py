@@ -975,7 +975,6 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         def _cleanup_prepare_worker(self) -> None:
             if self._prepare_thread is None:
                 assert self._prepare_worker is None
-                self._prepare_worker = None
                 return
             if self._prepare_thread.isRunning():
                 self._prepare_thread.quit()
@@ -1056,7 +1055,6 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         def _cleanup_worker(self) -> None:
             if self._decode_thread is None:
                 assert self._decode_worker is None
-                self._decode_worker = None
                 return
             if self._decode_thread.isRunning():
                 self._decode_thread.quit()
