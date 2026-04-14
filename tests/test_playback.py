@@ -217,19 +217,20 @@ def test_prepare_preview_data_uses_session_cache_for_repeated_file_previews():
 
 
 def test_prepare_preview_data_returns_error_details_when_source_cannot_be_loaded():
-    request = PreviewLoadRequest(
-        file_name="missing.fuz",
-        source=PreviewSource.FILE,
-        source_label="Loose file",
-        file_path="/home/runner/work/FuzVoicePreview/FuzVoicePreview/tests/does-not-exist.fuz",
-    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        request = PreviewLoadRequest(
+            file_name="missing.fuz",
+            source=PreviewSource.FILE,
+            source_label="Loose file",
+            file_path=str(Path(temp_dir) / "does-not-exist.fuz"),
+        )
 
-    prepared = prepare_preview_data(request)
+        prepared = prepare_preview_data(request)
 
-    assert prepared.payload is None
-    assert prepared.parse_error == "Unable to load preview data."
-    assert any("FileNotFoundError" in line for line in prepared.diagnostics)
-    assert prepared.performance.measurements["preview_parse_ms"] == 0.0
+        assert prepared.payload is None
+        assert prepared.parse_error == "Unable to load preview data."
+        assert any("FileNotFoundError" in line for line in prepared.diagnostics)
+        assert prepared.performance.measurements["preview_parse_ms"] == 0.0
 
 
 def test_performance_trace_formats_counts_separately_from_timings():
