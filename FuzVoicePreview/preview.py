@@ -94,11 +94,9 @@ def prepare_preview_data(
     parse_error = None
     try:
         payload = parse_fuz_bytes(raw_data, file_name=request.file_name, source=request.source)
-    except (FuzFormatError, ValueError) as exc:
+    except FuzFormatError as exc:
         parse_error = str(exc)
         diagnostics.append(_header_diagnostic(raw_data))
-        if isinstance(exc, ValueError):
-            diagnostics.append(f"{type(exc).__name__}: {exc}")
     else:
         if payload.audio_signature.label == "Unknown" or payload.container_label != "FUZ":
             diagnostics.append(_header_diagnostic(raw_data))
