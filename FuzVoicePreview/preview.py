@@ -40,6 +40,7 @@ class DecodedPreviewData:
     performance: PerformanceTrace
 
 
+# Show the compact metadata cards without overflowing the right-hand summary column.
 MAX_SUMMARY_LINES = 7
 
 
