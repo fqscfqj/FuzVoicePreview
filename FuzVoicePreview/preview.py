@@ -961,6 +961,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._placeholder_state.status_text = QCoreApplication.translate("FuzPreviewWidget", "Preparing preview...")
             self._refresh_view()
 
+            # Keep the thread parentless so widget shutdown can return immediately while cleanup
+            # finishes asynchronously; finished is still wired to deleteLater below.
             self._prepare_thread = QThread()
             self._prepare_worker = PreviewPreparationWorker(self._request, self._preview_cache)
             self._prepare_worker.moveToThread(self._prepare_thread)
@@ -974,7 +976,9 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
         def _cleanup_prepare_worker(self) -> None:
             if self._prepare_thread is None:
-                assert self._prepare_worker is None
+                if self._prepare_worker is not None:
+                    self._prepare_worker.deleteLater()
+                    self._prepare_worker = None
                 return
             if self._prepare_thread.isRunning():
                 self._prepare_thread.quit()
@@ -1041,6 +1045,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._controller.mark_loading()
             self._refresh_view()
 
+            # Keep the thread parentless so widget shutdown can return immediately while cleanup
+            # finishes asynchronously; finished is still wired to deleteLater below.
             self._decode_thread = QThread()
             self._decode_worker = DecodeWorker(self._payload, self._decoder)
             self._decode_worker.moveToThread(self._decode_thread)
@@ -1054,7 +1060,9 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
         def _cleanup_worker(self) -> None:
             if self._decode_thread is None:
-                assert self._decode_worker is None
+                if self._decode_worker is not None:
+                    self._decode_worker.deleteLater()
+                    self._decode_worker = None
                 return
             if self._decode_thread.isRunning():
                 self._decode_thread.quit()
