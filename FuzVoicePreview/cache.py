@@ -14,6 +14,10 @@ class LruCache(Generic[K, V]):
         self._items: OrderedDict[K, V] = OrderedDict()
         self._lock = RLock()
 
+    @property
+    def max_entries(self) -> int:
+        return self._max_entries
+
     def get(self, key: K) -> V | None:
         with self._lock:
             value = self._items.get(key)

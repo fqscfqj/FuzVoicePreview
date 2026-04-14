@@ -1015,10 +1015,9 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 settings=self._settings,
                 on_setting_changed=self._set_setting,
             )
-            volume_slider = getattr(self, "_volume_slider", None)
-            if volume_slider is not None:
-                with QSignalBlocker(volume_slider):
-                    volume_slider.setValue(self._controller.state.volume)
+            # The slider is constructed during __init__ before async preparation can complete.
+            with QSignalBlocker(self._volume_slider):
+                self._volume_slider.setValue(self._controller.state.volume)
             self._refresh_view()
             if self._preview_visible and not self._decode_started:
                 self._start_decode()

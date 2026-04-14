@@ -388,7 +388,7 @@ def test_plugin_translation_methods_do_not_require_pyqt6_runtime():
 def test_plugin_uses_bounded_preview_cache_size():
     plugin = FuzVoicePreviewPlugin()
 
-    assert plugin._preview_cache._max_entries == PREVIEW_CACHE_MAX_ENTRIES == 8
+    assert plugin._preview_cache.max_entries == PREVIEW_CACHE_MAX_ENTRIES == 8
 
 
 def test_normalize_language_tag_generates_progressive_fallbacks():
