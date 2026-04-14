@@ -974,6 +974,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
         def _cleanup_prepare_worker(self) -> None:
             if self._prepare_thread is None:
+                assert self._prepare_worker is None
                 self._prepare_worker = None
                 return
             if self._prepare_thread.isRunning():
@@ -1011,8 +1012,10 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 settings=self._settings,
                 on_setting_changed=self._set_setting,
             )
-            with QSignalBlocker(self._volume_slider):
-                self._volume_slider.setValue(self._controller.state.volume)
+            volume_slider = getattr(self, "_volume_slider", None)
+            if volume_slider is not None:
+                with QSignalBlocker(volume_slider):
+                    volume_slider.setValue(self._controller.state.volume)
             self._refresh_view()
             if self._preview_visible and not self._decode_started:
                 self._start_decode()
@@ -1052,6 +1055,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
         def _cleanup_worker(self) -> None:
             if self._decode_thread is None:
+                assert self._decode_worker is None
                 self._decode_worker = None
                 return
             if self._decode_thread.isRunning():
