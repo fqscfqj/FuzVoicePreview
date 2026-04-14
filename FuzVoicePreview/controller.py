@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import Callable, Protocol
 
 from .translation import QCoreApplication
 from .models import DecodeResult, FuzPayload, PreviewSettings, PreviewState
-from .playback import soften_wav_start
+from .perf import PerformanceTrace
+from .playback import prepare_wav_for_playback
 
 
 class PlayerAdapter(Protocol):
@@ -67,7 +69,13 @@ class PreviewController:
         self.state.error_text = None
         return self.state
 
-    def apply_decode_result(self, result: DecodeResult, *, autoplay: bool | None = None) -> PreviewState:
+    def apply_decode_result(
+        self,
+        result: DecodeResult,
+        *,
+        autoplay: bool | None = None,
+        trace: PerformanceTrace | None = None,
+    ) -> PreviewState:
         self.state.is_loading = False
         self.state.position_ms = 0
         if not result.success or not result.wav_data:
@@ -81,7 +89,20 @@ class PreviewController:
             self.state.status_text = self.state.error_text
             return self.state
 
-        self.player.load(soften_wav_start(result.wav_data))
+        prepared_wav = result.wav_data
+        if trace is not None:
+            started = time.perf_counter()
+            prepared_wav = prepare_wav_for_playback(result.wav_data)
+            trace.record_seconds("playback_prepare_wav_ms", time.perf_counter() - started)
+        else:
+            prepared_wav = prepare_wav_for_playback(result.wav_data)
+
+        if trace is not None:
+            started = time.perf_counter()
+            self.player.load(prepared_wav)
+            trace.record_seconds("player_load_ms", time.perf_counter() - started)
+        else:
+            self.player.load(prepared_wav)
         self.player.set_volume(self.state.volume)
         self.state.is_ready = True
         self.state.has_error = False
@@ -95,7 +116,12 @@ class PreviewController:
 
         should_autoplay = self.settings.autoplay if autoplay is None else bool(autoplay)
         if should_autoplay:
-            self.play(backend_name=backend)
+            if trace is not None:
+                started = time.perf_counter()
+                self.play(backend_name=backend)
+                trace.record_seconds("autoplay_start_ms", time.perf_counter() - started)
+            else:
+                self.play(backend_name=backend)
         else:
             self.state.is_playing = False
 

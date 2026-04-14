@@ -1,13 +1,172 @@
 from __future__ import annotations
 
 import pathlib
+import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
+from .cache import LruCache
 from .controller import PreviewController
 from .decoder import AudioDecoder
-from .translation import QCoreApplication
-from .models import DecodeResult, FuzPayload, PreviewSettings
+from .models import DecodeResult, FuzPayload, PreviewSettings, PreviewSource, PreviewState
+from .parser import FuzFormatError, parse_fuz_bytes
+from .perf import PerformanceTrace
 from .playback import MCI_AVAILABLE, PLAYBACK_COORDINATOR, MciPlaybackSnapshot, MciWavePlayerCore
+from .translation import QCoreApplication
+
+
+@dataclass(frozen=True)
+class PreviewLoadRequest:
+    file_name: str
+    source: PreviewSource
+    source_label: str
+    file_path: str | None = None
+    raw_data: bytes | bytearray | memoryview | None = None
+    cache_key: str | None = None
+
+
+@dataclass
+class PreparedPreviewData:
+    payload: FuzPayload | None
+    parse_error: str | None
+    diagnostics: tuple[str, ...]
+    performance: PerformanceTrace
+
+
+@dataclass
+class DecodedPreviewData:
+    result: DecodeResult
+    performance: PerformanceTrace
+
+
+# Show the compact metadata cards without overflowing the right-hand summary column.
+MAX_SUMMARY_LINES = 7
+
+
+def prepare_preview_data(
+    request: PreviewLoadRequest,
+    *,
+    cache: LruCache[str, PreparedPreviewData] | None = None,
+) -> PreparedPreviewData:
+    performance = PerformanceTrace()
+    cache_lookup_started = time.perf_counter()
+    cached = cache.get(request.cache_key) if cache is not None and request.cache_key else None
+    performance.record_seconds("preview_cache_lookup_ms", time.perf_counter() - cache_lookup_started)
+    if cached is not None:
+        performance.record_count("preview_cache_hit")
+        return PreparedPreviewData(
+            payload=cached.payload,
+            parse_error=cached.parse_error,
+            diagnostics=cached.diagnostics,
+            performance=performance,
+        )
+
+    diagnostics: list[str] = []
+    read_started = time.perf_counter()
+    try:
+        raw_data = _load_preview_bytes(request)
+    except (OSError, ValueError) as exc:
+        performance.record_seconds("preview_read_ms", time.perf_counter() - read_started)
+        performance.record_seconds("preview_parse_ms", 0.0)
+        diagnostics.append(f"{type(exc).__name__}: {exc}")
+        performance.record_milliseconds(
+            "preview_prepare_total_ms",
+            sum(
+                performance.measurements.get(name, 0.0)
+                for name in (
+                    "preview_cache_lookup_ms",
+                    "preview_read_ms",
+                    "preview_parse_ms",
+                )
+            ),
+        )
+        return PreparedPreviewData(
+            payload=None,
+            parse_error=QCoreApplication.translate("FuzPreviewWidget", "Unable to load preview data."),
+            diagnostics=tuple(diagnostics),
+            performance=performance,
+        )
+    performance.record_seconds("preview_read_ms", time.perf_counter() - read_started)
+
+    parse_started = time.perf_counter()
+    payload = None
+    parse_error = None
+    try:
+        payload = parse_fuz_bytes(raw_data, file_name=request.file_name, source=request.source)
+    except FuzFormatError as exc:
+        parse_error = str(exc)
+        diagnostics.append(_header_diagnostic(raw_data))
+    else:
+        if payload.audio_signature.label == "Unknown" or payload.container_label != "FUZ":
+            diagnostics.append(_header_diagnostic(raw_data))
+            diagnostics.append(_embedded_audio_header_diagnostic(payload))
+    performance.record_seconds("preview_parse_ms", time.perf_counter() - parse_started)
+    performance.record_milliseconds(
+        "preview_prepare_total_ms",
+        sum(
+            performance.measurements.get(name, 0.0)
+            for name in (
+                "preview_cache_lookup_ms",
+                "preview_read_ms",
+                "preview_parse_ms",
+            )
+        ),
+    )
+
+    prepared = PreparedPreviewData(
+        payload=payload,
+        parse_error=parse_error,
+        diagnostics=tuple(diagnostics),
+        performance=performance,
+    )
+    if cache is not None and request.cache_key:
+        cache.put(
+            request.cache_key,
+            PreparedPreviewData(
+                payload=payload,
+                parse_error=parse_error,
+                diagnostics=tuple(diagnostics),
+                performance=PerformanceTrace(),
+            ),
+        )
+    return prepared
+
+
+def _load_preview_bytes(request: PreviewLoadRequest) -> bytes:
+    if request.file_path:
+        return Path(request.file_path).read_bytes()
+    if request.raw_data is None:
+        raise ValueError("No preview payload source was provided.")
+    if isinstance(request.raw_data, bytes):
+        return request.raw_data
+    if isinstance(request.raw_data, bytearray):
+        return bytes(request.raw_data)
+    if isinstance(request.raw_data, memoryview):
+        return request.raw_data.tobytes()
+    return bytes(request.raw_data)
+
+
+def _header_diagnostic(raw_data: bytes) -> str:
+    head = raw_data[:16]
+    hex_head = " ".join(f"{byte:02X}" for byte in head) if head else "<empty>"
+    ascii_head = "".join(chr(byte) if 32 <= byte < 127 else "." for byte in head)
+    return QCoreApplication.translate("FuzPreviewDiagnostics", "Header bytes: {hex_head} | {ascii_head}").format(
+        hex_head=hex_head,
+        ascii_head=ascii_head,
+    )
+
+
+def _embedded_audio_header_diagnostic(payload: FuzPayload) -> str:
+    head = payload.audio_data[:16]
+    hex_head = " ".join(f"{byte:02X}" for byte in head) if head else "<empty>"
+    ascii_head = "".join(chr(byte) if 32 <= byte < 127 else "." for byte in head)
+    return QCoreApplication.translate(
+        "FuzPreviewDiagnostics", "Embedded audio header: {hex_head} | {ascii_head}"
+    ).format(
+        hex_head=hex_head,
+        ascii_head=ascii_head,
+    )
 
 try:  # pragma: no cover - exercised only inside MO2 / PyQt6 runtime
     from PyQt6.QtCore import (
@@ -112,6 +271,18 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             super().mousePressEvent(event)
 
 
+    class PreviewPreparationWorker(QObject):
+        finished = pyqtSignal(object)
+
+        def __init__(self, request: PreviewLoadRequest, cache: LruCache[str, PreparedPreviewData] | None):
+            super().__init__()
+            self._request = request
+            self._cache = cache
+
+        def run(self) -> None:
+            self.finished.emit(prepare_preview_data(self._request, cache=self._cache))
+
+
     class DecodeWorker(QObject):
         finished = pyqtSignal(object)
 
@@ -121,8 +292,9 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._decoder = decoder
 
         def run(self) -> None:
-            result = self._decoder.decode_payload(self._payload)
-            self.finished.emit(result)
+            performance = PerformanceTrace()
+            result = self._decoder.decode_payload(self._payload, trace=performance)
+            self.finished.emit(DecodedPreviewData(result=result, performance=performance))
 
 
     class NullMediaPlayerAdapter(QObject):
@@ -132,6 +304,10 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         duration_changed = pyqtSignal(int)
         playback_changed = pyqtSignal(bool)
         error_changed = pyqtSignal(str)
+
+        def __init__(self, parent: QWidget | None = None, metric_callback: Callable[[str, float], None] | None = None):
+            super().__init__(parent)
+            self._metric_callback = metric_callback
 
         def load(self, wav_data: bytes) -> None:
             self.error_changed.emit(QCoreApplication.translate("NullMediaPlayerAdapter", "No playback backend is available."))
@@ -164,8 +340,9 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             playback_changed = pyqtSignal(bool)
             error_changed = pyqtSignal(str)
 
-            def __init__(self, parent: QWidget | None = None):
+            def __init__(self, parent: QWidget | None = None, metric_callback: Callable[[str, float], None] | None = None):
                 super().__init__(parent)
+                self._metric_callback = metric_callback
                 self._player = QMediaPlayer(parent)
                 self._audio_output = QAudioOutput(parent)
                 self._player.setAudioOutput(self._audio_output)
@@ -228,24 +405,20 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         class MciWavePlayerAdapter(QObject):
             supports_seek = True
             supports_volume = True
-            supports_live_volume = False
+            supports_live_volume = True
             position_changed = pyqtSignal(int)
             duration_changed = pyqtSignal(int)
             playback_changed = pyqtSignal(bool)
             error_changed = pyqtSignal(str)
 
-            def __init__(self, parent: QWidget | None = None):
+            def __init__(self, parent: QWidget | None = None, metric_callback: Callable[[str, float], None] | None = None):
                 super().__init__(parent)
-                self._player = MciWavePlayerCore()
+                self._metric_callback = metric_callback
+                self._player = MciWavePlayerCore(metric_callback=self._emit_metric)
                 self._snapshot = MciPlaybackSnapshot(position_ms=0, duration_ms=0, is_playing=False)
                 self._timer = QTimer(self)
                 self._timer.setInterval(120)
                 self._timer.timeout.connect(self._on_tick)
-                self._volume_timer = QTimer(self)
-                self._volume_timer.setInterval(140)
-                self._volume_timer.setSingleShot(True)
-                self._volume_timer.timeout.connect(self._apply_pending_volume)
-                self._pending_volume: int | None = None
 
             def load(self, wav_data: bytes) -> None:
                 try:
@@ -254,8 +427,6 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                     self.error_changed.emit(str(exc))
                     return
                 self._timer.stop()
-                self._volume_timer.stop()
-                self._pending_volume = None
                 self._publish_snapshot(self._player.poll(), force_duration=True, force_position=True, force_playback=True)
 
             def play(self) -> None:
@@ -290,11 +461,11 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 self._publish_snapshot(self._player.poll(), force_playback=True, force_position=True)
 
             def set_volume(self, volume: int) -> None:
-                self._pending_volume = max(0, min(100, int(volume)))
-                if self._snapshot.is_playing:
-                    self._volume_timer.start()
+                try:
+                    self._player.set_volume(volume)
+                except Exception as exc:
+                    self.error_changed.emit(str(exc))
                     return
-                self._apply_pending_volume()
 
             def set_position(self, position_ms: int) -> None:
                 try:
@@ -306,8 +477,6 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
             def close(self) -> None:
                 self._timer.stop()
-                self._volume_timer.stop()
-                self._pending_volume = None
                 self._player.close()
                 PLAYBACK_COORDINATOR.release(self)
                 self._snapshot = MciPlaybackSnapshot(position_ms=0, duration_ms=0, is_playing=False)
@@ -322,19 +491,6 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 self._publish_snapshot(snapshot)
                 if not snapshot.is_playing:
                     self._timer.stop()
-
-            def _apply_pending_volume(self) -> None:
-                if self._pending_volume is None:
-                    return
-
-                volume = self._pending_volume
-                self._pending_volume = None
-                try:
-                    self._player.set_volume(volume)
-                except Exception as exc:
-                    self.error_changed.emit(str(exc))
-                    return
-                self._publish_snapshot(self._player.poll(), force_duration=True, force_position=True)
 
             def _publish_snapshot(
                 self,
@@ -354,6 +510,10 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                     self.position_changed.emit(snapshot.position_ms)
                 if force_playback or snapshot.is_playing != previous.is_playing:
                     self.playback_changed.emit(snapshot.is_playing)
+
+            def _emit_metric(self, name: str, value_ms: float) -> None:
+                if self._metric_callback is not None:
+                    self._metric_callback(name, value_ms)
 
         PlayerAdapterClass = MciWavePlayerAdapter
     else:
@@ -501,31 +661,45 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         def __init__(
             self,
             *,
-            payload: FuzPayload,
+            request: PreviewLoadRequest,
             decoder: AudioDecoder,
             settings: PreviewSettings,
             set_setting: Callable[[str, object], None],
             diagnostics: tuple[str, ...],
+            preview_cache: LruCache[str, PreparedPreviewData] | None,
         ):
             super().__init__()
-            self._payload = payload
+            self._request = request
+            self._payload: FuzPayload | None = None
             self._settings = settings
             self._set_setting = set_setting
             self._diagnostics = diagnostics
-            self._player = PlayerAdapterClass(self)
-            self._controller = PreviewController(
-                payload=payload,
-                player=self._player,
-                settings=settings,
-                on_setting_changed=set_setting,
-            )
+            self._preview_cache = preview_cache
+            self._performance = PerformanceTrace()
+            self._player = PlayerAdapterClass(self, self._record_player_metric)
+            self._controller: PreviewController | None = None
             self._decoder = decoder
+            self._prepare_thread: QThread | None = None
+            self._prepare_worker: PreviewPreparationWorker | None = None
             self._decode_thread: QThread | None = None
             self._decode_worker: DecodeWorker | None = None
             self._details_card: QFrame | None = None
+            self._prepare_started = False
             self._decode_started = False
             self._preview_visible = False
             self._pending_autoplay = False
+            self._autoplay_requested_at: float | None = None
+            self._last_detail_text = ""
+            self._last_summary_lines: tuple[str, ...] = ()
+            self._last_status_theme: tuple[bool, bool, bool] | None = None
+            self._last_status_text = ""
+            self._last_status_hint = ""
+            self._placeholder_state = PreviewState(
+                status_text=QCoreApplication.translate("FuzPreviewWidget", "Preparing preview..."),
+                is_loading=True,
+                metadata_lines=self._initial_metadata_lines(),
+                volume=self._settings.default_volume,
+            )
 
             self.setObjectName("PreviewRoot")
             self.setStyleSheet(_preview_stylesheet())
@@ -585,19 +759,25 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
             self._preview_visible = True
 
-            if not self._decode_started:
+            if not self._prepare_started:
+                self._start_prepare()
+                return
+
+            if self._controller is not None and not self._decode_started:
                 self._start_decode()
                 return
 
-            if self._pending_autoplay and self._controller.state.can_play and not self._controller.state.is_playing:
+            state = self._active_state()
+            if self._pending_autoplay and state.can_play and not state.is_playing and self._controller is not None:
                 self._pending_autoplay = False
+                self._autoplay_requested_at = time.perf_counter()
                 self._controller.play()
                 self._refresh_view()
 
         def hideEvent(self, event) -> None:
             self._preview_visible = False
             self._pending_autoplay = False
-            if self._controller.state.is_playing:
+            if self._controller is not None and self._controller.state.is_playing:
                 self._controller.stop()
                 self._refresh_view()
             super().hideEvent(event)
@@ -605,9 +785,22 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
         def closeEvent(self, event) -> None:
             self._preview_visible = False
             self._pending_autoplay = False
+            self._cleanup_prepare_worker()
             self._cleanup_worker()
-            self._controller.close()
+            if self._controller is not None:
+                self._controller.close()
             super().closeEvent(event)
+
+        def _initial_metadata_lines(self) -> list[str]:
+            return [
+                QCoreApplication.translate("FuzPreviewWidget", "File: {file_name}").format(file_name=self._request.file_name),
+                QCoreApplication.translate("FuzPreviewWidget", "Source: {source_label}").format(
+                    source_label=self._request.source_label
+                ),
+            ]
+
+        def _active_state(self) -> PreviewState:
+            return self._controller.state if self._controller is not None else self._placeholder_state
 
         def _sync_preferred_variant(self) -> bool:
             stack = self.parentWidget()
@@ -647,7 +840,7 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
         def _build_layout(self) -> None:
             self._volume_slider.setRange(0, 100)
-            self._volume_slider.setValue(self._controller.state.volume)
+            self._volume_slider.setValue(self._active_state().volume)
             self._play_button.setObjectName("PrimaryButton")
             self._stop_button.setObjectName("DangerButton")
             self._export_audio_button.setObjectName("ExportButton")
@@ -758,67 +951,175 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 else QCoreApplication.translate("FuzPreviewWidget", "\u25b6 Details")
             )
 
+        def _start_prepare(self) -> None:
+            if self._prepare_started:
+                return
+            self._prepare_started = True
+            self._placeholder_state.is_loading = True
+            self._placeholder_state.has_error = False
+            self._placeholder_state.error_text = None
+            self._placeholder_state.status_text = QCoreApplication.translate("FuzPreviewWidget", "Preparing preview...")
+            self._refresh_view()
+
+            # Keep the thread parentless so widget shutdown can return immediately while cleanup
+            # finishes asynchronously; finished is still wired to deleteLater below.
+            self._prepare_thread = QThread()
+            self._prepare_worker = PreviewPreparationWorker(self._request, self._preview_cache)
+            self._prepare_worker.moveToThread(self._prepare_thread)
+            self._prepare_thread.started.connect(self._prepare_worker.run)
+            self._prepare_worker.finished.connect(self._on_preparation_finished)
+            self._prepare_worker.finished.connect(self._prepare_thread.quit)
+            self._prepare_worker.finished.connect(self._prepare_worker.deleteLater)
+            self._prepare_thread.finished.connect(self._finalize_prepare_worker_cleanup)
+            self._prepare_thread.finished.connect(self._prepare_thread.deleteLater)
+            self._prepare_thread.start()
+
+        def _cleanup_prepare_worker(self) -> None:
+            if self._prepare_thread is None:
+                if self._prepare_worker is not None:
+                    self._prepare_worker.deleteLater()
+                    self._prepare_worker = None
+                return
+            if self._prepare_thread.isRunning():
+                self._prepare_thread.quit()
+                return
+            self._finalize_prepare_worker_cleanup()
+
+        def _finalize_prepare_worker_cleanup(self) -> None:
+            if self._prepare_thread is None or self._prepare_thread.isRunning():
+                return
+            self._prepare_worker = None
+            self._prepare_thread = None
+
+        def _on_preparation_finished(self, prepared: PreparedPreviewData) -> None:
+            self._performance.extend(prepared.performance)
+            self._diagnostics = tuple(self._unique_lines(list(self._diagnostics) + list(prepared.diagnostics)))
+            self._cleanup_prepare_worker()
+
+            if prepared.parse_error is not None or prepared.payload is None:
+                self._payload = None
+                self._placeholder_state.is_loading = False
+                self._placeholder_state.has_error = True
+                self._placeholder_state.error_text = prepared.parse_error
+                self._placeholder_state.status_text = prepared.parse_error or QCoreApplication.translate(
+                    "FuzPreviewWidget", "Invalid FUZ container."
+                )
+                self._refresh_view()
+                return
+
+            self._payload = prepared.payload
+            self._placeholder_state.is_loading = False
+            self._controller = PreviewController(
+                payload=prepared.payload,
+                player=self._player,
+                settings=self._settings,
+                on_setting_changed=self._set_setting,
+            )
+            # The slider is constructed during __init__ before async preparation can complete.
+            with QSignalBlocker(self._volume_slider):
+                self._volume_slider.setValue(self._controller.state.volume)
+            self._refresh_view()
+            if self._preview_visible and not self._decode_started:
+                self._start_decode()
+
         def _start_decode(self) -> None:
             if self._decode_started:
                 return
             self._decode_started = True
+            if self._controller is None:
+                self._decode_started = False
+                return
 
             if not PLAYBACK_AVAILABLE:
                 self._on_decode_finished(
-                    DecodeResult.failed(QCoreApplication.translate("FuzPreviewWidget", "No playback backend is available."))
+                    DecodedPreviewData(
+                        result=DecodeResult.failed(
+                            QCoreApplication.translate("FuzPreviewWidget", "No playback backend is available.")
+                        ),
+                        performance=PerformanceTrace(),
+                    )
                 )
                 return
 
             self._controller.mark_loading()
             self._refresh_view()
 
-            self._decode_thread = QThread(self)
+            # Keep the thread parentless so widget shutdown can return immediately while cleanup
+            # finishes asynchronously; finished is still wired to deleteLater below.
+            self._decode_thread = QThread()
             self._decode_worker = DecodeWorker(self._payload, self._decoder)
             self._decode_worker.moveToThread(self._decode_thread)
             self._decode_thread.started.connect(self._decode_worker.run)
             self._decode_worker.finished.connect(self._on_decode_finished)
             self._decode_worker.finished.connect(self._decode_thread.quit)
             self._decode_worker.finished.connect(self._decode_worker.deleteLater)
+            self._decode_thread.finished.connect(self._finalize_decode_worker_cleanup)
             self._decode_thread.finished.connect(self._decode_thread.deleteLater)
             self._decode_thread.start()
 
         def _cleanup_worker(self) -> None:
-            if self._decode_thread is not None and self._decode_thread.isRunning():
+            if self._decode_thread is None:
+                if self._decode_worker is not None:
+                    self._decode_worker.deleteLater()
+                    self._decode_worker = None
+                return
+            if self._decode_thread.isRunning():
                 self._decode_thread.quit()
-                self._decode_thread.wait(1000)
-            self._decode_thread = None
-            self._decode_worker = None
+                return
+            self._finalize_decode_worker_cleanup()
 
-        def _on_decode_finished(self, result: DecodeResult) -> None:
+        def _finalize_decode_worker_cleanup(self) -> None:
+            if self._decode_thread is None or self._decode_thread.isRunning():
+                return
+            self._decode_worker = None
+            self._decode_thread = None
+
+        def _on_decode_finished(self, decoded: DecodedPreviewData) -> None:
+            result = decoded.result
+            self._performance.extend(decoded.performance)
             should_autoplay = bool(
                 self._settings.autoplay and self._preview_visible and self.isVisible() and not self.isHidden()
             )
             self._pending_autoplay = bool(result.success and result.wav_data and self._settings.autoplay and not should_autoplay)
-            self._controller.apply_decode_result(result, autoplay=should_autoplay)
+            if should_autoplay:
+                self._autoplay_requested_at = time.perf_counter()
+            if self._controller is not None:
+                self._controller.apply_decode_result(result, autoplay=should_autoplay, trace=self._performance)
             self._refresh_view()
             self._cleanup_worker()
 
         def _on_position_changed(self, value: int) -> None:
+            if self._controller is None:
+                return
             self._controller.update_position(value)
             with QSignalBlocker(self._position_slider):
                 self._position_slider.setValue(value)
             self._time_label.setText(self._controller.current_time_label())
 
         def _on_duration_changed(self, value: int) -> None:
+            if self._controller is None:
+                return
             self._controller.update_position(self._controller.state.position_ms, value)
             self._position_slider.setRange(0, max(0, value))
             self._time_label.setText(self._controller.current_time_label())
 
         def _on_playback_changed(self, is_playing: bool) -> None:
+            if self._controller is None:
+                return
             self._controller.state.is_playing = is_playing
             if is_playing:
+                if self._autoplay_requested_at is not None:
+                    self._performance.record_seconds("autoplay_to_playing_ms", time.perf_counter() - self._autoplay_requested_at)
+                    self._autoplay_requested_at = None
                 self._controller.state.status_text = QCoreApplication.translate("FuzPreviewWidget", "Playing.")
             elif (
                 self._controller.state.duration_ms > 0
                 and self._controller.state.position_ms >= self._controller.state.duration_ms
             ):
+                self._autoplay_requested_at = None
                 self._controller.state.status_text = QCoreApplication.translate("FuzPreviewWidget", "Ready to replay.")
             else:
+                self._autoplay_requested_at = None
                 self._controller.state.status_text = (
                     QCoreApplication.translate("FuzPreviewWidget", "Stopped.")
                     if self._controller.state.position_ms == 0
@@ -827,32 +1128,46 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._refresh_view()
 
         def _on_player_error(self, error_text: str) -> None:
-            self._controller.state.has_error = True
-            self._controller.state.error_text = error_text
-            self._controller.state.status_text = error_text
+            state = self._active_state()
+            state.has_error = True
+            state.error_text = error_text
+            state.status_text = error_text
             self._refresh_view()
 
         def _toggle_playback(self) -> None:
+            if self._controller is None:
+                return
             self._controller.toggle_play_pause()
             self._refresh_view()
 
         def _stop_playback(self) -> None:
+            if self._controller is None:
+                return
             self._controller.stop()
             self._refresh_view()
 
         def _change_volume(self, value: int) -> None:
+            if self._controller is None:
+                return
+            started = time.perf_counter()
             self._controller.set_volume(value)
+            self._performance.record_seconds("volume_change_ms", time.perf_counter() - started)
             self._refresh_view()
 
         def _seek(self, value: int) -> None:
-            if not getattr(self._player, "supports_seek", True):
+            if self._controller is None or not getattr(self._player, "supports_seek", True):
                 return
+            started = time.perf_counter()
             self._player.set_position(value)
             self._controller.update_position(value)
+            self._performance.record_seconds("seek_response_ms", time.perf_counter() - started)
             self._time_label.setText(self._controller.current_time_label())
 
+        def _record_player_metric(self, name: str, value_ms: float) -> None:
+            self._performance.record_milliseconds(name, value_ms)
+
         def _refresh_view(self) -> None:
-            state = self._controller.state
+            state = self._active_state()
             diagnostics = list(self._diagnostics)
             if state.error_text:
                 diagnostics.append(
@@ -864,12 +1179,28 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
                 diagnostics.append(
                     QCoreApplication.translate("FuzPreviewWidget", "Decode status: Playback is unavailable.")
                 )
+            if self._settings.debug_logging:
+                diagnostics.extend(self._performance.lines())
 
             detail_lines = self._unique_lines(state.metadata_lines + diagnostics)
-            self._metadata.setPlainText("\n".join(detail_lines))
-            self._set_summary_lines(state.metadata_lines[1:7] or state.metadata_lines)
-            self._status.setText(state.status_text)
-            self._status_hint.setText(self._build_status_hint(state.metadata_lines))
+            detail_text = "\n".join(detail_lines)
+            if detail_text != self._last_detail_text:
+                self._metadata.setPlainText(detail_text)
+                self._last_detail_text = detail_text
+
+            summary_lines = tuple(state.metadata_lines[1:MAX_SUMMARY_LINES] or state.metadata_lines)
+            if summary_lines != self._last_summary_lines:
+                self._set_summary_lines(list(summary_lines))
+                self._last_summary_lines = summary_lines
+
+            if state.status_text != self._last_status_text:
+                self._status.setText(state.status_text)
+                self._last_status_text = state.status_text
+
+            status_hint = self._build_status_hint(state.metadata_lines)
+            if status_hint != self._last_status_hint:
+                self._status_hint.setText(status_hint)
+                self._last_status_hint = status_hint
             self._play_button.setEnabled(state.can_play)
             self._play_button.setText(
                 QCoreApplication.translate("FuzPreviewWidget", "Pause")
@@ -882,7 +1213,10 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             self._volume_value.setText(f"{state.volume}%")
             self._export_audio_button.setEnabled(state.can_export_audio)
             self._export_lip_button.setEnabled(state.can_export_lip)
-            self._time_label.setText(self._controller.current_time_label())
+            if self._controller is not None:
+                self._time_label.setText(self._controller.current_time_label())
+            else:
+                self._time_label.setText("0:00 / 0:00")
             self._update_status_theme()
 
         def _set_summary_lines(self, lines: list[str]) -> None:
@@ -918,7 +1252,11 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             if self._status_card is None:
                 return
 
-            state = self._controller.state
+            state = self._active_state()
+            theme_key = (state.has_error, state.is_loading, state.is_playing)
+            if theme_key == self._last_status_theme:
+                return
+            self._last_status_theme = theme_key
             if state.has_error:
                 background = "#f4ece8"
                 border = "#d6beb6"
@@ -958,6 +1296,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             )
 
         def _export_audio(self) -> None:
+            if self._payload is None:
+                return
             default_name = pathlib.Path(self._payload.file_name).stem + self._payload.audio_export_extension
             target, _ = QFileDialog.getSaveFileName(
                 self,
@@ -969,6 +1309,8 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
             pathlib.Path(target).write_bytes(self._payload.audio_data)
 
         def _export_lip(self) -> None:
+            if self._payload is None:
+                return
             default_name = pathlib.Path(self._payload.file_name).stem + ".lip"
             target, _ = QFileDialog.getSaveFileName(
                 self,
@@ -1013,14 +1355,12 @@ if BASIC_QT_AVAILABLE:  # pragma: no cover - exercised only inside MO2 / PyQt6 r
 
 def build_preview_widget(  # pragma: no cover - exercised only inside MO2 / PyQt6 runtime
     *,
-    payload: FuzPayload | None,
-    parse_error: str | None,
-    file_name: str,
-    source_label: str,
+    request: PreviewLoadRequest,
     decoder: AudioDecoder,
     settings: PreviewSettings,
     set_setting: Callable[[str, object], None],
     diagnostics: tuple[str, ...],
+    preview_cache: LruCache[str, PreparedPreviewData] | None = None,
 ):
     if not BASIC_QT_AVAILABLE:
         raise RuntimeError(
@@ -1029,43 +1369,27 @@ def build_preview_widget(  # pragma: no cover - exercised only inside MO2 / PyQt
             )
         )
 
-    error_lines = [
-        QCoreApplication.translate("build_preview_widget", "File: {file_name}").format(file_name=file_name),
-        QCoreApplication.translate("build_preview_widget", "Source: {source_label}").format(source_label=source_label),
-    ]
-    error_lines.extend(diagnostics)
     preview_diagnostics = list(diagnostics)
     if not MULTIMEDIA_AVAILABLE:
         if MCI_AVAILABLE:
             backend_line = QCoreApplication.translate("build_preview_widget", "Playback backend: MCI fallback")
-            error_lines.append(backend_line)
             preview_diagnostics.append(backend_line)
             if settings.debug_logging:
                 qt_line = QCoreApplication.translate("build_preview_widget", "PyQt6.QtMultimedia: {error}").format(
                     error=MULTIMEDIA_IMPORT_ERROR
                 )
-                error_lines.append(qt_line)
                 preview_diagnostics.append(qt_line)
         else:
             qt_line = QCoreApplication.translate("build_preview_widget", "PyQt6.QtMultimedia: {error}").format(
                 error=MULTIMEDIA_IMPORT_ERROR
             )
             backend_line = QCoreApplication.translate("build_preview_widget", "Playback backend: unavailable")
-            error_lines.extend((qt_line, backend_line))
             preview_diagnostics.extend((qt_line, backend_line))
-
-    if parse_error is not None:
-        error_lines.append(QCoreApplication.translate("build_preview_widget", "Parse status: {error}").format(error=parse_error))
-        return ErrorPreviewWidget(
-            title=QCoreApplication.translate("build_preview_widget", "Invalid FUZ container."),
-            lines=error_lines,
-        )
-
-    assert payload is not None
     return FuzPreviewWidget(
-        payload=payload,
+        request=request,
         decoder=decoder,
         settings=settings,
         set_setting=set_setting,
         diagnostics=tuple(preview_diagnostics),
+        preview_cache=preview_cache,
     )

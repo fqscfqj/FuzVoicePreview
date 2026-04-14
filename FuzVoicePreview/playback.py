@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import os
 import tempfile
 import time
@@ -9,6 +10,8 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Callable, Protocol
+
+from .cache import LruCache
 
 
 try:  # pragma: no cover - Windows only
@@ -102,11 +105,13 @@ class MciWavePlayerCore:
         temp_writer: Callable[[bytes], Path] | None = None,
         alias: str | None = None,
         clock: Callable[[], float] | None = None,
+        metric_callback: Callable[[str, float], None] | None = None,
     ):
         self._transport = transport or WinmmMciTransport()
         self._temp_writer = temp_writer or _write_temp_wav
         self._alias = alias or f"fuzpreview_{os.getpid()}_{id(self):x}"
         self._clock = clock or time.monotonic
+        self._metric_callback = metric_callback
         self._source_wav_data: bytes | None = None
         self._temp_file: Path | None = None
         self._duration_ms = 0
@@ -177,10 +182,10 @@ class MciWavePlayerCore:
         if self._source_wav_data is None:
             self._volume = clamped
             return
-        current_position = self._current_position_ms()
-        was_playing = self._is_playing
+        started = time.perf_counter()
         self._volume = clamped
-        self._rebuild_media(position_ms=current_position, is_playing=was_playing)
+        self._send(f"setaudio {self._alias} volume to {_mci_volume_level(clamped)}")
+        self._emit_metric("mci_volume_apply_ms", time.perf_counter() - started)
 
     def poll(self) -> MciPlaybackSnapshot:
         if self._source_wav_data is None:
@@ -214,11 +219,12 @@ class MciWavePlayerCore:
 
     def _rebuild_media(self, *, position_ms: int, is_playing: bool) -> None:
         self._require_media()
+        started = time.perf_counter()
         self._close_media()
-        scaled_wav = scale_wav_volume(self._source_wav_data, self._volume)
-        self._temp_file = self._temp_writer(scaled_wav)
+        self._temp_file = self._temp_writer(self._source_wav_data)
         self._send(f'open "{self._temp_file}" type waveaudio alias {self._alias}')
         self._send(f"set {self._alias} time format milliseconds")
+        self._send(f"setaudio {self._alias} volume to {_mci_volume_level(self._volume)}")
         self._duration_ms = self._query_int(f"status {self._alias} length")
         self._position_ms = max(0, min(self._duration_ms, int(position_ms)))
         self._is_playing = False
@@ -230,6 +236,7 @@ class MciWavePlayerCore:
             self._set_playback_clock(self._position_ms)
         else:
             self._clear_playback_clock()
+        self._emit_metric("mci_media_open_ms", time.perf_counter() - started)
 
     def _close_media(self) -> None:
         try:
@@ -277,6 +284,23 @@ class MciWavePlayerCore:
 
     def _send(self, command: str) -> str:
         return self._transport.send(command)
+
+    def _emit_metric(self, name: str, seconds: float) -> None:
+        if self._metric_callback is not None:
+            self._metric_callback(name, seconds * 1000.0)
+
+
+_PREPARED_WAV_CACHE = LruCache[str, bytes](max_entries=8)
+
+
+def prepare_wav_for_playback(wav_data: bytes) -> bytes:
+    cache_key = _bytes_cache_key("prepared_wav", wav_data)
+    cached = _PREPARED_WAV_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    prepared = soften_wav_start(wav_data)
+    return _PREPARED_WAV_CACHE.put(cache_key, prepared)
 
 
 def scale_wav_volume(wav_data: bytes, volume: int) -> bytes:
@@ -383,6 +407,15 @@ def _clamp_pcm_sample(sample: int, sample_width: int) -> int:
     max_value = (1 << (sample_width * 8 - 1)) - 1
     min_value = -(1 << (sample_width * 8 - 1))
     return max(min_value, min(max_value, sample))
+
+
+def _mci_volume_level(volume: int) -> int:
+    return max(0, min(1000, round(max(0, min(100, int(volume))) * 10)))
+
+
+def _bytes_cache_key(namespace: str, payload: bytes) -> str:
+    digest = hashlib.blake2s(payload, digest_size=16).hexdigest()
+    return f"{namespace}:{len(payload)}:{digest}"
 
 
 def _write_temp_wav(wav_data: bytes) -> Path:
