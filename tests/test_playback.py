@@ -5,16 +5,19 @@ import tempfile
 import wave
 from pathlib import Path
 
+from FuzVoicePreview.cache import LruCache
 from FuzVoicePreview.i18n import _candidate_translation_paths, _normalize_language_tag
+from FuzVoicePreview.models import PreviewSource
 from FuzVoicePreview.playback import (
     ExclusivePlaybackCoordinator,
     MciWavePlayerCore,
     _scale_pcm_frames,
+    prepare_wav_for_playback,
     scale_wav_volume,
     soften_wav_start,
 )
 from FuzVoicePreview.plugin import FuzVoicePreviewPlugin
-from FuzVoicePreview.preview import preferred_variant_mod_name
+from FuzVoicePreview.preview import PreviewLoadRequest, preferred_variant_mod_name, prepare_preview_data
 
 
 def build_wav_bytes(*, sample_width: int, samples: list[int], channels: int = 1, sample_rate: int = 22050) -> bytes:
@@ -67,6 +70,8 @@ class FakeMciTransport:
             self.position_ms = 0
             return "1"
         if command.startswith("set "):
+            return ""
+        if command.startswith("setaudio "):
             return ""
         if command.endswith(" length"):
             return str(self.duration_ms)
@@ -178,6 +183,38 @@ def test_soften_wav_start_applies_short_fade_in_to_pcm_data():
     assert samples[2] < samples[3] <= 12000
 
 
+def test_prepare_wav_for_playback_reuses_cached_fade_result():
+    wav_data = build_wav_bytes(sample_width=2, samples=[12000, 12000, 12000, 12000], sample_rate=1000)
+
+    first = prepare_wav_for_playback(wav_data)
+    second = prepare_wav_for_playback(wav_data)
+
+    assert first == second
+    assert first is second
+
+
+def test_prepare_preview_data_uses_session_cache_for_repeated_file_previews():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        file_path = Path(temp_dir) / "voice.fuz"
+        file_path.write_bytes(b"RIFF\x10\x00\x00\x00WAVEdata")
+        request = PreviewLoadRequest(
+            file_name="voice.fuz",
+            source=PreviewSource.FILE,
+            source_label="Loose file",
+            file_path=str(file_path),
+            cache_key="file-cache-key",
+        )
+        cache = LruCache(max_entries=4)
+
+        first = prepare_preview_data(request, cache=cache)
+        second = prepare_preview_data(request, cache=cache)
+
+        assert first.payload is not None
+        assert second.payload is not None
+        assert second.payload == first.payload
+        assert second.performance.measurements["preview_cache_hit"] == 1
+
+
 def test_mci_wave_player_core_preserves_position_and_playback_state_during_volume_rebuild():
     transport = FakeMciTransport(duration_ms=2000)
     written_payloads: list[bytes] = []
@@ -196,7 +233,8 @@ def test_mci_wave_player_core_preserves_position_and_playback_state_during_volum
 
     assert player.supports_seek is True
     assert player.supports_volume is True
-    assert len(written_payloads) == 2
+    assert len(written_payloads) == 1
+    assert "setaudio preview_alias volume to 250" in transport.commands
     assert transport.position_ms == 750
     assert transport.mode == "playing"
     assert snapshot.position_ms == 750

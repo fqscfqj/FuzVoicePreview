@@ -34,8 +34,10 @@ class FakeBackend:
 
     def __init__(self, handled_kind: AudioKind):
         self.handled_kind = handled_kind
+        self.calls = 0
 
     def decode(self, payload: FuzPayload) -> DecodeResult:
+        self.calls += 1
         if payload.audio_signature.kind is not self.handled_kind:
             return DecodeResult.failed("signature not handled", backend_name=self.name)
         return DecodeResult.ok(
@@ -113,6 +115,19 @@ def test_decoder_can_route_ogg_payload_to_backend():
 
     assert result.success is True
     assert result.channels == 1
+
+
+def test_decoder_caches_repeated_results_for_same_payload():
+    payload = build_payload(OGG_SIGNATURE, b"OggSpayload")
+    backend = FakeBackend(AudioKind.OGG)
+    decoder = AudioDecoder(backends=[backend])
+
+    first = decoder.decode_payload(payload)
+    second = decoder.decode_payload(payload)
+
+    assert first.success is True
+    assert second.success is True
+    assert backend.calls == 1
 
 
 def test_frame_to_pcm_bytes_strips_packed_padding():

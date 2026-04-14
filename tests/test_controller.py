@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from FuzVoicePreview.controller import PreviewController, format_milliseconds
 from FuzVoicePreview.models import DecodeResult, FuzPayload, PreviewSettings, PreviewSource
+from FuzVoicePreview.perf import PerformanceTrace
 from FuzVoicePreview.parser import WAV_SIGNATURE
 
 
@@ -65,6 +66,31 @@ def test_controller_autoplay_starts_playback_after_decode():
     assert state.is_playing is True
     assert ("load", b"wav") in player.calls
     assert ("play", None) in player.calls
+
+
+def test_controller_records_decode_to_load_timings_when_trace_is_provided():
+    player = FakePlayer()
+    controller = PreviewController(
+        payload=build_payload(),
+        player=player,
+        settings=PreviewSettings(autoplay=True, default_volume=80),
+    )
+    trace = PerformanceTrace()
+
+    controller.apply_decode_result(
+        DecodeResult.ok(
+            wav_data=b"wav",
+            duration_ms=2500,
+            sample_rate=22050,
+            channels=1,
+            backend_name="fake",
+        ),
+        trace=trace,
+    )
+
+    assert "playback_prepare_wav_ms" in trace.measurements
+    assert "player_load_ms" in trace.measurements
+    assert "autoplay_start_ms" in trace.measurements
 
 
 def test_controller_can_skip_autoplay_when_decode_finishes_in_inactive_view():

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import importlib
 import io
+import time
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
+from .cache import LruCache
 from .models import AudioKind, DecodeResult, FuzPayload
+from .perf import PerformanceTrace
 
 
 class DecoderBackend(Protocol):
@@ -130,32 +133,65 @@ class WaveStdlibBackend:
 class AudioDecoder:
     def __init__(self, backends: list[DecoderBackend] | None = None):
         self._backends = list(backends) if backends is not None else [WaveStdlibBackend(), PyAvAudioBackend()]
+        self._cache = LruCache[str, DecodeResult](max_entries=8)
 
-    def decode_payload(self, payload: FuzPayload) -> DecodeResult:
+    def decode_payload(self, payload: FuzPayload, *, trace: PerformanceTrace | None = None) -> DecodeResult:
+        cache_key = _payload_cache_key(payload)
+        cache_started = time.perf_counter()
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            if trace is not None:
+                trace.record_seconds("decode_cache_lookup_ms", time.perf_counter() - cache_started)
+                trace.record_milliseconds("decode_cache_hit", 1)
+            return replace(cached)
+        if trace is not None:
+            trace.record_seconds("decode_cache_lookup_ms", time.perf_counter() - cache_started)
+
         errors: list[str] = []
         available = False
+        decode_started = time.perf_counter()
         for backend in self._backends:
             available = True
+            backend_started = time.perf_counter()
             try:
                 result = backend.decode(payload)
             except UnsupportedAudioError as exc:
+                if trace is not None:
+                    trace.record_seconds(f"decode_backend_{backend.name}_ms", time.perf_counter() - backend_started)
                 errors.append(f"{backend.name}: {exc}")
                 continue
             except Exception as exc:
+                if trace is not None:
+                    trace.record_seconds(f"decode_backend_{backend.name}_ms", time.perf_counter() - backend_started)
                 errors.append(f"{backend.name}: {exc}")
                 continue
 
+            if trace is not None:
+                trace.record_seconds(f"decode_backend_{backend.name}_ms", time.perf_counter() - backend_started)
             if result.success:
-                return result
+                self._cache.put(cache_key, result)
+                if trace is not None:
+                    trace.record_seconds("decode_total_ms", time.perf_counter() - decode_started)
+                return replace(result)
             if result.error:
                 errors.append(f"{backend.name}: {result.error}")
 
         if not available:
             return DecodeResult.failed("No audio decoder backend available.")
 
-        return DecodeResult.failed(
+        failed = DecodeResult.failed(
             "Unable to decode embedded audio. " + "; ".join(errors) if errors else "Unable to decode embedded audio."
         )
+        if trace is not None:
+            trace.record_seconds("decode_total_ms", time.perf_counter() - decode_started)
+        return failed
+
+
+def _payload_cache_key(payload: FuzPayload) -> str:
+    import hashlib
+
+    digest = hashlib.blake2s(payload.audio_data, digest_size=16).hexdigest()
+    return f"{payload.audio_signature.kind.value}:{len(payload.audio_data)}:{digest}"
 
 
 def _dedupe_hints(hints: tuple[str | None, ...]) -> list[str | None]:

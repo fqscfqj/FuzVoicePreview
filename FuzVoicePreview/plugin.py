@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
+from .cache import LruCache
 from .translation import QCoreApplication
 from .decoder import AudioDecoder
 from .models import PreviewSettings, PreviewSource
-from .parser import FuzFormatError, parse_fuz_bytes
+from .perf import PerformanceTrace
 from .runtime import RuntimeDiagnostics, configure_runtime
 
 try:  # pragma: no cover - exercised only inside MO2 runtime
@@ -24,6 +26,7 @@ class FuzVoicePreviewPlugin(BasePlugin):
         self._organizer = None
         self._runtime: RuntimeDiagnostics | None = None
         self._decoder = AudioDecoder()
+        self._preview_cache = LruCache(max_entries=32)
 
     def init(self, organizer) -> bool:
         self._organizer = organizer
@@ -79,43 +82,59 @@ class FuzVoicePreviewPlugin(BasePlugin):
     def genFilePreview(self, fileName, maxSize):
         file_path = self._resolve_preview_path(fileName)
         return self._build_preview(
-            raw_data=file_path.read_bytes(),
             file_name=Path(fileName).name or file_path.name,
             source=PreviewSource.FILE,
+            file_path=file_path,
         )
 
     def genDataPreview(self, fileData, fileName, maxSize):
         return self._build_preview(
-            raw_data=bytes(fileData),
             file_name=fileName,
             source=PreviewSource.ARCHIVE,
+            raw_data=fileData if isinstance(fileData, bytes) else bytes(fileData),
         )
 
-    def _build_preview(self, *, raw_data: bytes, file_name: str, source: PreviewSource):
-        from .preview import build_preview_widget
+    def _build_preview(
+        self,
+        *,
+        file_name: str,
+        source: PreviewSource,
+        file_path: Path | None = None,
+        raw_data: bytes | bytearray | memoryview | None = None,
+    ):
+        from .preview import PreviewLoadRequest, build_preview_widget
 
-        payload = None
-        parse_error = None
         diagnostics = list(self._diagnostic_lines())
-        try:
-            payload = parse_fuz_bytes(raw_data, file_name=file_name, source=source)
-        except FuzFormatError as exc:
-            parse_error = str(exc)
-            diagnostics.append(self._header_diagnostic(raw_data))
+        trace = PerformanceTrace()
+        if file_path is not None:
+            request_started = time.perf_counter()
+            request = PreviewLoadRequest(
+                file_name=file_name,
+                source=source,
+                source_label=source.label,
+                file_path=str(file_path),
+                cache_key=self._file_cache_key(file_path),
+            )
+            trace.record_seconds("preview_request_build_ms", time.perf_counter() - request_started)
         else:
-            if payload.audio_signature.label == "Unknown" or payload.container_label != "FUZ":
-                diagnostics.append(self._header_diagnostic(raw_data))
-                diagnostics.append(self._embedded_audio_header_diagnostic(payload))
+            request_started = time.perf_counter()
+            request = PreviewLoadRequest(
+                file_name=file_name,
+                source=source,
+                source_label=source.label,
+                raw_data=raw_data,
+            )
+            trace.record_seconds("preview_request_build_ms", time.perf_counter() - request_started)
+        if self._plugin_setting("debug_logging", False):
+            diagnostics.extend(trace.lines())
 
         return build_preview_widget(
-            payload=payload,
-            parse_error=parse_error,
-            file_name=file_name,
-            source_label=source.label,
+            request=request,
             decoder=self._decoder,
             settings=self._load_settings(),
             set_setting=self._set_setting,
             diagnostics=tuple(diagnostics),
+            preview_cache=self._preview_cache,
         )
 
     def _resolve_preview_path(self, file_name: str) -> Path:
@@ -237,22 +256,9 @@ class FuzVoicePreviewPlugin(BasePlugin):
             )
         return tuple(lines)
 
-    def _header_diagnostic(self, raw_data: bytes) -> str:
-        head = raw_data[:16]
-        hex_head = " ".join(f"{byte:02X}" for byte in head) if head else "<empty>"
-        ascii_head = "".join(chr(byte) if 32 <= byte < 127 else "." for byte in head)
-        return QCoreApplication.translate("FuzVoicePreviewPlugin", "Header bytes: {hex_head} | {ascii_head}").format(
-            hex_head=hex_head,
-            ascii_head=ascii_head,
-        )
-
-    def _embedded_audio_header_diagnostic(self, payload) -> str:
-        head = payload.audio_data[:16]
-        hex_head = " ".join(f"{byte:02X}" for byte in head) if head else "<empty>"
-        ascii_head = "".join(chr(byte) if 32 <= byte < 127 else "." for byte in head)
-        return QCoreApplication.translate(
-            "FuzVoicePreviewPlugin", "Embedded audio header: {hex_head} | {ascii_head}"
-        ).format(
-            hex_head=hex_head,
-            ascii_head=ascii_head,
-        )
+    def _file_cache_key(self, file_path: Path) -> str | None:
+        try:
+            stat_result = file_path.stat()
+        except OSError:
+            return None
+        return f"file:{file_path.resolve(strict=False)}:{stat_result.st_mtime_ns}:{stat_result.st_size}"
